@@ -1,0 +1,70 @@
+.results-panel {
+    background-color: var(--bg-card);
+    padding: 20px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.matrix-comparison-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.matrix-comparison {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1em;
+}
+
+.matrix-panel {
+    background-color: var(--bg-card-light);
+    padding: 20px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.matrix-panel h4 {
+    margin-bottom: 15px;
+    color: var(--text-secondary);
+    text-align: center;
+    font-size: 1rem;
+}
+
+.final-matrix-section {
+    padding: 1.12em;
+    background: var(--bg-card-light);
+    border-radius: 12px;
+}
+
+.final-matrix-header h3 {
+    color: var(--text-primary);
+    margin-bottom: 15px;
+    text-align: center;
+    font-size: 1.3rem;
+}
+
+.panel-header-control {
+    display: flex;
+    gap: 1em;
+    align-items: stretch;
+}
+
+#sol-btn {
+    background-color: var(--primary-color);
+    border: none;
+}
+
+@media (max-width: 768px) {
+    .matrix-comparison {
+        grid-template-columns: 1fr;
+    }
+
+    .desktop-jump {
+        display: none;
+    }
+}

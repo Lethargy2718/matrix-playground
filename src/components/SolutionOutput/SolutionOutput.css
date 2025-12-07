@@ -1,0 +1,167 @@
+.solution-display {
+    height: auto;
+}
+
+.solution-section {
+    background: var(--bg-dark);
+    padding: 1.2em;
+    border-radius: 8px;
+    border-left: 4px solid var(--primary-color);
+    width: 100%;
+}
+
+.solution-section.theorem {
+    border-left-color: var(--accent-color);
+    font-style: italic;
+}
+
+.solution-section.analysis {
+    border-left-color: var(--info-color);
+}
+
+.solution-section.reasoning {
+    border-left-color: var(--warning-color);
+}
+
+.solution-section.cases {
+    border-left-color: var(--purple-color);
+}
+
+.solution-section.our-case {
+    border-left-color: var(--success-color);
+}
+
+.solution-section.steps {
+    border-left-color: var(--info-color);
+}
+
+.solution-section.equation {
+    border-left-color: var(--success-color);
+}
+
+.solution-section.equations {
+    border-left-color: var(--accent-color);
+}
+
+.solution-section.final {
+    border-left-color: var(--success-color);
+}
+
+.solution-section.parametric {
+    border-left-color: var(--purple-color);
+}
+
+.section-title {
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 10px;
+    color: var(--accent-color);
+}
+
+.section-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.vector-display {
+    font-family: 'Courier New', monospace;
+    font-size: 1.1rem;
+    padding: 10px;
+    background: var(--bg-card);
+    border-radius: 4px;
+    margin: 5px 0;
+}
+
+.general-solution-formula {
+    font-family: 'Courier New', monospace;
+    font-size: 1.2rem;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 15px;
+    color: var(--accent-color);
+}
+
+.variable-solutions {
+    display: grid;
+    gap: 10px;
+}
+
+.info-box {
+    padding: 12px;
+    background: var(--bg-card);
+    border-radius: 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: 1px solid var(--border-color);
+    transition: all 0.3s ease;
+}
+
+.info-box:hover {
+    border-color: var(--accent-color);
+    transform: translateX(3px);
+}
+
+.equation-item {
+    font-family: 'Courier New', monospace;
+    font-size: 1.1rem;
+    font-weight: 600;
+    padding: 8px 12px;
+    margin: 5px 0;
+    background: var(--bg-card);
+    border-radius: 4px;
+}
+
+.no-solution {
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 20px;
+}
+
+.infinite-solution-content {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+@media (max-width: 768px) {
+    .solution-block {
+        padding: 1em;
+        font-size: 1rem;
+    }
+
+    .solution-header {
+        font-size: 1.2rem;
+    }
+
+    .equation-display,
+    .vector-display,
+    .info-box {
+        font-size: 1rem;
+    }
+
+    .info-box {
+        padding: 8px;
+    }
+}
+
+.solution-details {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.solution-details>*:not(:first-child):not(:nth-child(2)) {
+    margin-top: 2em;
+}
+
+.solution-details> :first-child {
+    margin-bottom: 1em;
+}
+
+.solution-details>* {
+    width: 100%;
+}

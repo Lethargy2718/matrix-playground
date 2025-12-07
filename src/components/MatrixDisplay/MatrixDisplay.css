@@ -1,0 +1,75 @@
+.matrix-display {
+    overflow: auto;
+    position: relative;
+    background-color: var(--bg-dark);
+    border-radius: 8px;
+    padding: 1em;
+}
+
+.matrix-display-inner,
+.matrix-cell-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: max-content;
+    margin: 0 auto;
+}
+
+.matrix-grid {
+    display: grid;
+    gap: 0.3em;
+}
+
+.matrix-row-container {
+    display: contents;
+}
+
+.matrix-cell {
+    width: 100%;
+    padding: 0.5em;
+    font-weight: 500;
+    font-size: 0.9rem;
+    background-color: var(--bg-card);
+    border-radius: 6px;
+    transition: all 0.3s ease;
+    overflow: auto;
+}
+
+.matrix-cell.pivot-element {
+    background-color: var(--pivot-color);
+    color: white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    font-weight: 600;
+}
+
+.matrix-cell.augmented {
+    background-color: rgba(67, 97, 238, 0.1);
+    border: 1px solid rgba(67, 97, 238, 0.3);
+    margin-left: 0.5em;
+}
+
+.matrix-cell.changed-row:not(.pivot-element) {
+    border: 1px solid rgba(76, 201, 240, 0.4);
+    animation: highlightChange 1s ease;
+}
+
+.matrix-cell.pivot-element.changed-row {
+    border: 1px solid var(--accent-color);
+}
+
+.no-matrix {
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 20px;
+}
+
+@keyframes highlightChange {
+    from {
+        background-color: var(--primary-color);
+    }
+
+    to {
+        background-color: var(--bg-card);
+    }
+}

@@ -1,0 +1,46 @@
+.theme-switcher {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    text-align-last: center;
+    margin-right: auto;
+}
+
+.theme-switcher select {
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: var(--bg-card-light);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    appearance: none;
+    transition:
+        background-color 0.25s ease,
+        color 0.25s ease,
+        box-shadow 0.3s ease,
+        transform 0.2s ease,
+        border-color 0.25s ease;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    display: flex;
+}
+
+.theme-switcher select:hover {
+    background: var(--bg-card);
+    border-color: var(--primary-color);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35),
+        0 0 6px var(--primary-color);
+}
+
+.theme-switcher select:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--primary-color),
+        0 0 10px var(--accent-color);
+    border-color: var(--primary-dark);
+}
+
+.theme-switcher select:active {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
