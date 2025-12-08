@@ -738,10 +738,15 @@ export const Matrix = {
             phase: 'analysis',
             type: 'ready_to_solve',
             description: `System Ready for Solution`,
-            details: [
-                `• We have now transformed the augmented matrix into its <strong>Reduced Row Echelon Form (RREF)</strong>.<br>`,
-                `• This form clearly shows the pivot positions and simplifies the equations, making it straightforward to determine whether the system has a unique solution, infinitely many solutions, or no solution.<br>`,
-                `• Now we're ready to proceed with solving the system.`
+            blocks: [
+                {
+                    title: "Details",
+                    data: `
+                        • We have now transformed the augmented matrix into its <strong>Reduced Row Echelon Form (RREF)</strong>.<br>
+                        • This form clearly shows the pivot positions and simplifies the equations, making it straightforward to determine whether the system has a unique solution, infinitely many solutions, or no solution.<br>
+                        • Now we're ready to proceed with solving the system.
+                    `
+                },
             ],
             matrix: finalRREF.rref.data,
             pivotCols,
@@ -752,9 +757,14 @@ export const Matrix = {
             phase: 'analysis',
             type: 'rank_explanation',
             description: `The meaning of rank`,
-            details: [
-                `• <strong>Rank of a matrix</strong> = number of pivot columns = number of linearly independent rows/columns`,
-                `• <strong>Rank tells us about the number of solutions to a system of equations</strong>`
+            blocks: [
+                {
+                    title: "Details",
+                    data: `
+                        • <strong>Rank of a matrix</strong> = number of pivot columns = number of linearly independent rows/columns<br>
+                        • <strong>Rank tells us about the number of solutions to a system of equations</strong>
+                    `
+                },
             ],
             matrix: finalRREF.rref.data,
             pivotCols,
@@ -789,20 +799,31 @@ export const Matrix = {
             phase: 'analysis',
             type: 'rank_ab_calculation',
             description: `<strong>Calculating Rank of Augmented Matrix [A|b]</strong>`,
-            details: [
-                `We already know rank(A) = ${rankA} (number of pivot columns).`,
-                `To find rank([A|b]), we check if any rows became zero rows after the final pivot row in the coefficient matrix:<br>`,
-                ...(zeroRowsAnalysis.length > 0
-                    ? zeroRowsAnalysis.map(check =>
-                        `Row ${check.row + 1}: [${'0, '.repeat(matrix.cols).slice(0, -2)} | ${formatNumber(check.value)}] → ${check.equation} → <strong>${check.status}</strong>`
-                    )
-                    : ["Observation: the coefficient matrix has no zero rows."]
-                )
+            blocks: [
+                {
+                    title: "Details",
+                    data: `
+                        We already know rank(A) = ${rankA} (number of pivot columns).<br>
+                        To find rank([A|b]), we check if any rows became zero after the final pivot row:<br>
+                    ` +
+                        (
+                            zeroRowsAnalysis.length > 0
+                                ? zeroRowsAnalysis
+                                    .map(check =>
+                                        `Row ${check.row + 1}: [${"0, ".repeat(matrix.cols).slice(0, -2)} | ${formatNumber(check.value)}] → ${check.equation} → <strong>${check.status}</strong>`
+                                    )
+                                    .join("<br>")
+                                : `Observation: the coefficient matrix has no zero rows.`
+
+                        )
+                },
+                {
+                    title: "Our Case",
+                    data: hasContradiction
+                        ? `Found contradiction in row ${contradictionRow + 1}! This creates an extra pivot, so rank([A|b]) = rank(A) + 1 = ${rankAb}`
+                        : `No inconsistent zero rows (0 = a number). No extra pivots. So rank([A|b]) = rank(A) = ${rankAb}`
+                }
             ],
-            ourCase: hasContradiction
-                // NOTE: contradictionRow is 0-indexed
-                ? `Found contradiction in row ${contradictionRow + 1}! This creates an extra pivot, so rank([A|b]) = rank(A) + 1 = ${rankAb}`
-                : `No inconsistent zero rows (0 = a number). No extra pivots. So rank([A|b]) = rank(A) = ${rankAb}`,
             matrix: finalRREF.rref.data,
             pivotCols,
             augmentedVector: b,
@@ -813,17 +834,26 @@ export const Matrix = {
         yield {
             phase: 'analysis',
             type: 'theorem_explanation',
-            description: `Now let's find the number of solutionzs`,
-            cases: [
-                `• If rank(A) = rank([A|b]) = n → <strong>Unique Solution</strong>`,
-                `• If rank(A) = rank([A|b]) < n → <strong>Infinite Solutions</strong>`,
-                `• If rank(A) < rank([A|b]) → <strong>No Solution</strong>`
+            description: `Now let's find the number of solutions`,
+            blocks: [
+                {
+                    title: "Theorem",
+                    data: `
+                        • If rank(A) = rank([A|b]) = n → <strong>Unique Solution</strong><br>
+                        • If rank(A) = rank([A|b]) < n → <strong>Infinite Solutions</strong><br>
+                        • If rank(A) < rank([A|b]) → <strong>No Solution</strong>
+                    `
+                },
+                {
+                    title: "Our Case",
+                    data: `In our case: rank(A) = ${rankA}, rank([A|b]) = ${rankAb}, n = ${matrix.cols}`
+                }
             ],
-            ourCase: `In our case: rank(A) = ${rankA}, rank([A|b]) = ${rankAb}, n = ${matrix.cols}`,
             matrix: finalRREF.rref.data,
             pivotCols,
             augmentedVector: b
         };
+
 
         // Unique solution
         if (rankA === rankAb && rankA === matrix.cols) {
@@ -831,15 +861,21 @@ export const Matrix = {
                 phase: 'analysis',
                 type: 'solution_type_determined',
                 description: `System has a <strong>unique solution</strong>`,
-                reasoning: [
-                    `• rank(A) = rank([A|b]) = ${rankA}`,
-                    `• rank equals number of variables (n = ${matrix.cols})`,
-                    `• No free variables → Exactly one solution`
+                blocks: [
+                    {
+                        title: "Reasoning",
+                        data: `
+                            • rank(A) = rank([A|b]) = ${rankA}<br>
+                            • rank equals number of variables (n = ${matrix.cols})<br>
+                            • No free variables → Exactly one solution
+                        `,
+                    },
                 ],
                 matrix: finalRREF.rref.data,
                 pivotCols,
                 augmentedVector: b
             };
+
 
             // Extract unique solution by just equalling each pivot variable to its corresponding value in the solution vector.
             const solution = new Array(matrix.cols).fill(0); // Initialize an array of 0s
@@ -875,42 +911,37 @@ export const Matrix = {
             yield {
                 phase: 'analysis',
                 type: 'solution_type_determined',
-                description: `System has <strong>infinite solutions</strong>`,
-                reasoning: [
-                    `• rank(A) = rank([A|b]) = ${rankA}`,
-                    `• rank < number of variables (${rankA} < ${matrix.cols})`,
-                    `• There ${freeCols?.length === 1 ? "is" : "are"} ${freeCols.length} free variable${freeCols.length !== 1 ? 's' : ''} → Infinite solutions`,
-                    `• <i>Note: Free variables are the variables not corresponding to a pivot column</i>`,
-                    `Free Variables: ${freeCols.map((col, index) => (
+                description: `System has a <strong>unique solution</strong>`,
+                blocks: [
+                    {
+                        title: "Reasoning",
+                        data: `
+                            • rank(A) = rank([A|b]) = ${rankA}<br>
+                            • rank equals number of variables (n = ${matrix.cols})<br>
+                            • No free variables → Exactly one solution
                         `
-                        <strong key={col}>
-                            x<sub>${col + 1}</sub>
-                            ${index < freeCols.length - 1 ? ', ' : ''}
-                        </strong>
-                        `
-                    ))}
-                `,
-
+                    }
                 ],
                 matrix: finalRREF.rref.data,
                 pivotCols,
-                augmentedVector: b,
-                freeCols,
-                freeVars: true,
+                augmentedVector: b
             };
 
             yield {
                 phase: 'solution',
                 type: 'extracting_equations',
                 description: `Extracting Equations from RREF`,
-                details: [
-                    `Each row gives us an equation for a basic variable in terms of free variables.`,
+                blocks: [
+                    {
+                        title: "Details",
+                        data: `Each row gives us an equation for a basic variable in terms of free variables.`
+                    }
                 ],
                 matrix: finalRREF.rref.data,
                 pivotCols,
                 augmentedVector: b,
                 freeCols,
-                freeVars: true,
+                freeVars: true
             };
 
             // Form the equations
@@ -978,10 +1009,15 @@ export const Matrix = {
                     phase: 'solution',
                     type: 'equation_extracted',
                     description: `Equation from Row ${i + 1}`,
-                    details: [
-                        `Reading from row ${i + 1} of the RREF matrix:`,
-                        `<br><strong>${equationText}</strong><br>`,
-                        `<br>This tells us how the basic variable x<sub>${pivotCol + 1}</sub> depends on the free variables.`,
+                    blocks: [
+                        {
+                            title: "Equation",
+                            data: `<strong>${equationText}</strong>`
+                        },
+                        {
+                            title: "Explanation",
+                            data: `This tells us how the basic variable x<sub>${pivotCol + 1}</sub> depends on the free variables.`
+                        }
                     ],
                     matrix: finalRREF.rref.data,
                     pivotCols,
@@ -1063,16 +1099,25 @@ export const Matrix = {
                 phase: 'analysis',
                 type: 'no_solution',
                 description: `System has <strong>no solution</strong>`,
-                reasoning: [
-                    `rank(A) = ${rankA}`,
-                    `rank([A|b]) = ${rankAb}`,
-                    `Since rank(A) < rank([A|b]), the system is inconsistent`
+                blocks: [
+                    {
+                        title: "Reasoning",
+                        data: `
+                            rank(A) = ${rankA}<br>
+                            rank([A|b]) = ${rankAb}<br>
+                            Since rank(A) < rank([A|b]), the system is inconsistent.
+                        `
+                    },
+                    {
+                        title: "Explanation",
+                        data: `The augmented matrix has more independent equations than the coefficient matrix, meaning the system is overdetermined and inconsistent.`
+                    }
                 ],
-                explanation: `The augmented matrix has more independent equations than the coefficient matrix, meaning the system is overdetermined and inconsistent.`,
                 matrix: finalRREF.rref.data,
                 pivotCols,
                 augmentedVector: b
             };
+
         }
     },
 

@@ -42,63 +42,25 @@ const SolutionOutput = ({ step }) => {
 const renderSolutionContent = (step) => {
     return (
         <>
-            {/* HEADER - Main description */}
             {step.description && (
                 <div className="operation-type" dangerouslySetInnerHTML={{ __html: step.description }} />
             )}
 
-            {/* DETAILS - Explanatory list or notes */}
-            {step.details && step.details.length > 0 && (
-                <SolutionSection type="details" title="Details">
-                    {Array.isArray(step.details)
-                        ? step.details.map((d, i) => (
-                            <div key={i} dangerouslySetInnerHTML={{ __html: d }} />
-                        ))
-                        : <div dangerouslySetInnerHTML={{ __html: step.details }} />}
-                </SolutionSection>
-            )}
 
-            {step.theorem && (
-                <SolutionSection type="theorem" content={step.theorem} />
-            )}
+            {/* 
+                block: {
+                    title: string
+                    data: html
+                }
+            */}
 
-            {step.reasoning && (
-                <SolutionSection type="reasoning" title="Reasoning">
-                    {step.reasoning.map((reason, index) => (
-                        <div key={index} dangerouslySetInnerHTML={{ __html: reason }} />
-                    ))}
-                </SolutionSection>
-            )}
-
-            {step.cases && (
-                <SolutionSection type="cases" title="Possible Cases">
-                    {step.cases.map((caseText, index) => (
-                        <div key={index} dangerouslySetInnerHTML={{ __html: caseText }} />
-                    ))}
-                </SolutionSection>
-            )}
-
-            {step.ourCase && (
-                <SolutionSection type="our-case" title="Our Situation">
-                    <div dangerouslySetInnerHTML={{ __html: step.ourCase }} />
-                </SolutionSection>
-            )}
-
-            {step.steps && (
-                <SolutionSection type="steps" title="Calculation Steps">
-                    {step.steps.map((stepText, index) => (
-                        <div key={index} dangerouslySetInnerHTML={{ __html: stepText }} />
-                    ))}
-                </SolutionSection>
-            )}
-
-            {/* {step.basisVector && (
-                <SolutionSection type="result" title="Basis Vector">
-                    <div className="vector-display">
-                        v<sub>{step.index + 1}</sub> = [{step.basisVector.map(v => formatNumber(v)).join(', ')}]
-                    </div>
-                </SolutionSection>
-            )} */}
+            {step.blocks?.length > 0 &&
+                step.blocks.map((block, i) => (
+                    <SolutionSection title={block.title} key={i}>
+                        <div dangerouslySetInnerHTML={{ __html: block.data }} />
+                    </SolutionSection>
+                ))
+            }
 
             {step.solution && (
                 <SolutionSection type="result" title="Unique Solution">
@@ -111,19 +73,13 @@ const renderSolutionContent = (step) => {
             {step.type === 'infinite_solutions_general' && (
                 <InfiniteSolutionContent step={step} />
             )}
-
-            {step.finalExplanation && (
-                <SolutionSection type="final" title="Conclusion">
-                    <div dangerouslySetInnerHTML={{ __html: step.finalExplanation }} />
-                </SolutionSection>
-            )}
         </>
     );
 };
 
-const SolutionSection = ({ type, title, children, content }) => {
+const SolutionSection = ({ title, children, content }) => {
     return (
-        <div className={`solution-section shadow ${type}`}>
+        <div className={`solution-section shadow`}>
             {title && <div className="section-title">{title}</div>}
             {content && (
                 <div className="section-content" dangerouslySetInnerHTML={{ __html: content }} />
@@ -134,19 +90,11 @@ const SolutionSection = ({ type, title, children, content }) => {
 };
 
 const InfiniteSolutionContent = ({ step }) => {
-    const { equations, freeVars } = step;
+    const { freeVars } = step;
 
     return (
         <div className="infinite-solution-content">
             <ParametricSolution step={step} />
-
-            {equations && equations.length > 0 && (
-                <SolutionSection type="equations" title="Pivot Variables in Terms of Free Variables">
-                    {equations.map((eq, idx) => (
-                        <div key={idx} className="equation-item info-box" dangerouslySetInnerHTML={{ __html: eq.display }} />
-                    ))}
-                </SolutionSection>
-            )}
 
             {freeVars.length > 0 && (
                 <SolutionSection type="free-vars" title="Free Variables">
@@ -165,7 +113,7 @@ const InfiniteSolutionContent = ({ step }) => {
 };
 
 const ParametricSolution = ({ step }) => {
-    const { particularSolution: xp, basisVectors, freeVars, variables: n } = step;
+    const { particularSolution: xp, basisVectors, variables: n } = step;
 
     return (
         <SolutionSection type="parametric" title="General Solution (Parametric Form)">
