@@ -177,7 +177,7 @@ html {
 }
 
 body {
-    font-family: Calibri, 'Trebuchet MS', sans-serif;
+    font-family: 'Montserrat', Calibri, 'Trebuchet MS', sans-serif;
     background-color: var(--bg-dark);
     color: var(--text-primary);
     line-height: 1.6;
