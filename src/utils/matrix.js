@@ -1,5 +1,715 @@
 import { formatNumber } from './helpers';
 
+class GaussJordanEliminator {
+    constructor(matrix, options = {}) {
+        this.matrix = Matrix.clone(matrix);
+        this.augmentedVector = options.augmentedVector ? [...options.augmentedVector] : null;
+        this.phase = options.phase || 'rref';
+        this.processType = options.processType || 'elimination'; // 'elimination', 'inverse', etc.
+        this.pivotCols = [];
+        this.pivots = [];
+        this.nextPivotRow = 0;
+        this.isSingular = false;
+        this.originalCols = matrix.cols;
+
+        // For inverse specific
+        if (options.augmentedIdentity) {
+            this.setupIdentityAugmentation();
+        }
+    }
+
+    setupIdentityAugmentation() {
+        const n = this.matrix.rows;
+        for (let i = 0; i < n; i++) {
+            for (let j = 0; j < n; j++) {
+                this.matrix.data[i].push(i === j ? 1 : 0);
+            }
+        }
+        this.matrix.cols = 2 * n;
+    }
+
+    extractInverse() {
+        const n = this.matrix.rows;
+        const inverseData = [];
+        for (let i = 0; i < n; i++) {
+            inverseData.push(this.matrix.data[i].slice(n));
+        }
+        return Matrix.create(inverseData);
+    }
+
+    *gaussJordanElimination(jordan = true, processSpecificYield = null) {
+        // Phase 1: Forward elimination
+        yield* this.phase1ForwardElimination(processSpecificYield);
+
+        // If only REF needed, stop here
+        if (!jordan) {
+            yield* this.finalizeRef();
+            return;
+        }
+
+        // Phase 2: Back elimination for RREF
+        yield* this.phase2BackElimination();
+        yield* this.finalizeRref();
+    }
+
+    *phase1ForwardElimination(processSpecificYield) {
+        // Iterate over each column. The actual start of phase 1 (Gauss).
+        for (let j = 0; j < (this.processType === 'inverse' ? this.originalCols : this.matrix.cols); j++) {
+            // If no rows left => break. All pivots were found.
+            if (this.nextPivotRow >= this.matrix.rows) {
+                yield* this.handleNoMoreRows(j);
+                break;
+            }
+
+            yield* this.searchPivot(j); // message
+            const pivotInfo = yield* this.findPivot(j); // search for pivot
+
+            if (!pivotInfo.found) {
+                // no pivot found. search the next column.
+                yield* this.handleNoPivot(j, pivotInfo.searchDetails);
+                continue;
+            }
+
+            // process pivot if found
+            yield* this.processPivot(pivotInfo, j, processSpecificYield);
+        }
+    }
+
+    // Message for starting the search for pivots
+    *searchPivot(col) {
+        const description = this.processType === 'inverse'
+            ? `<p><strong>Searching for pivot in column ${col + 1}</strong></p>
+                <p>Looking for first non-zero entry from row ${this.nextPivotRow + 1} downward.</p>`
+            : `<p><strong>Searching for pivot in column ${col + 1}</strong></p>
+                <p>Looking for the first non-zero entry in column ${col + 1}, starting from row ${this.nextPivotRow + 1} downward. 
+                ${this.nextPivotRow > 0 ? `We skip rows above ${this.nextPivotRow + 1} because they already have pivots in previous columns.</p>` : ""}`;
+
+        yield {
+            phase: this.phase,
+            action: 'search_pivot',
+            description,
+            matrix: structuredClone(this.matrix.data),
+            pivotCols: [...this.pivotCols],
+            augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+            currentColumn: col,
+            searchStart: this.nextPivotRow,
+            pivots: structuredClone(this.pivots),
+        };
+    }
+
+    // Search for the best pivot in a column
+    *findPivot(col) {
+        // Searching for a pivot
+        let searchDetails = [];
+        let pivotRow = null;
+        const details = {
+            nonZero: {},
+            one: {},
+            negativeOne: {}
+        };
+
+        // Searching for pivot
+        for (let i = this.nextPivotRow; i < this.matrix.rows; i++) {
+            const value = this.matrix.data[i][col];
+            searchDetails.push(`Row ${i + 1}: ${formatNumber(value)}`);
+
+            // Best case: value is 1; immediate pivot
+            if (Math.abs(value - 1) < 1e-10 && details.one.x === undefined) {
+                details.one = { value, x: i, y: col };
+                break; // stop searching
+            }
+
+            // Next best: value is -1; store it, but keep looking for a 1
+            else if (Math.abs(value + 1) < 1e-10 && details.negativeOne.x === undefined) {
+                details.negativeOne = { value, x: i, y: col };
+            }
+
+            // Otherwise, store first non-zero
+            else if (Math.abs(value) > 1e-10 && details.nonZero.x === undefined) {
+                details.nonZero = { value, x: i, y: col };
+            }
+        }
+
+        // Return pivot info
+        if (details.one.x !== undefined) {
+            pivotRow = details.one.x;
+            return { found: true, type: 'perfect', row: pivotRow, col, details, searchDetails };
+        }
+        else if (details.negativeOne.x !== undefined) {
+            pivotRow = details.negativeOne.x;
+            return { found: true, type: 'negative', row: pivotRow, col, details, searchDetails };
+        }
+        else if (details.nonZero.x !== undefined) {
+            pivotRow = details.nonZero.x;
+            return { found: true, type: 'regular', row: pivotRow, col, details, searchDetails };
+        }
+
+        return { found: false, searchDetails };
+    }
+
+    // Pick best possible pivot out of found pivots
+    *handlePivotFound(pivotInfo, col) {
+        const { type, row, searchDetails } = pivotInfo;
+        this.pivotCols.push(col);
+        const pivotPosition = { row, col };
+        this.pivots.push(pivotPosition);
+
+        let description = '';
+        if (type === 'perfect') {
+            // Found a 1. Perfect pivot.
+            description = `<p><strong>Ideal Pivot Found (1)</strong></p>
+                <p>In column ${col + 1}, we found a <strong>perfect pivot</strong> at position (${row + 1}, ${col + 1}).</p>
+                <p>Since it's already 1, we can avoid division and keep calculations simpler (no fractions introduced).</p>
+                <p>We'll bring this row up to the pivot position (${this.nextPivotRow + 1}) if necessary.</p>
+                <p><strong>Search details:</strong></p>
+                ${searchDetails.map((detail, idx) =>
+                idx === row - this.nextPivotRow
+                    ? `- ${detail} ← <strong>SELECTED AS PERFECT PIVOT</strong>`
+                    : `• ${detail}`
+            ).join('<br>')}`;
+        }
+        else if (type === 'negative') {
+            // Found a -1. Second best pivot.
+            description = `<p><strong>Convenient Pivot Found (-1)</strong></p>
+                <p>Found a pivot candidate of -1 at position (${row + 1}, ${col + 1}).</p>
+                <p>This is almost as good as 1 since we can simply multiply the row by -1 instead of dividing by a messy number.</p>
+                <p>We'll simply bring this row to the pivot position (${this.nextPivotRow + 1}) and flip its sign.</p>
+                <p><strong>Search details:</strong></p>
+                ${searchDetails.map((detail, idx) =>
+                idx === row - this.nextPivotRow
+                    ? `- ${detail} ← <strong>SELECTED AS PIVOT (-1)</strong>`
+                    : `• ${detail}`
+            ).join('<br>')}`;
+        }
+        else {
+            // Found a nonzero. The only choice at this point.
+            const value = pivotInfo.details.nonZero.value;
+            description = `<p><strong>Pivot Found</strong></p>
+                <p>Found first non-zero entry at position (${row + 1}, ${col + 1}) with value ${formatNumber(value)}.</p>
+                <p><strong>Search details:</strong></p>
+                ${searchDetails.map((detail, idx) =>
+                idx === row - this.nextPivotRow
+                    ? `- ${detail} ← <strong>SELECTED AS PIVOT</strong>`
+                    : `• ${detail}`
+            ).join('<br>')}`;
+        }
+
+        yield {
+            phase: this.phase,
+            action: type === 'perfect' ? 'perfect_pivot_found' :
+                type === 'negative' ? 'negative_pivot_found' : 'pivot_found',
+            description,
+            matrix: structuredClone(this.matrix.data),
+            pivotCols: [...this.pivotCols],
+            augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+            pivotPosition,
+            pivots: structuredClone(this.pivots),
+        };
+
+        return pivotPosition;
+    }
+
+    // Message for when no pivots are found
+    *handleNoPivot(col, searchDetails) {
+        // No pivot found.
+        yield {
+            phase: this.phase,
+            action: 'no_pivot_detailed',
+            description: `
+                <p><strong>No Pivot Found in Column ${col + 1}</strong></p>
+                ${searchDetails.length !== 0
+                    ? `<p><strong>Search Process:</strong></p>
+                    ${searchDetails.map(detail => `• ${detail}`).join('<br>')}`
+                    : ""}
+                <p><strong>Why this matters:</strong></p>
+                <ul>
+                    <li>All entries in column ${col + 1} from row ${this.nextPivotRow + 1} downward are zero</li>
+                    <li>This means variable x<sub>${col + 1}</sub> will be a <strong>free variable</strong></li>
+                    <li>Free variables can take any value in the solution</li>
+                    <li>The system may have infinitely many solutions</li>
+                </ul>
+                <p>We'll continue to the next column without increasing the pivot row counter.</p>
+            `,
+            matrix: structuredClone(this.matrix.data),
+            pivotCols: [...this.pivotCols],
+            augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+            searchDetails,
+            pivots: structuredClone(this.pivots),
+        };
+    }
+
+    // Swapping, scaling, and elimination are done here
+    *processPivot(pivotInfo, col, processSpecificYield) {
+        const pivotPosition = yield* this.handlePivotFound(pivotInfo, col);
+
+        // Handle swapping
+        if (pivotPosition.row !== this.nextPivotRow) {
+            // Swap needed
+            yield* this.swapRows(pivotPosition.row, this.nextPivotRow, col);
+        } else {
+            // Correct position
+            yield {
+                phase: this.phase,
+                action: 'pivot_correct_position',
+                description: `
+                    <p><strong>Pivot in Correct Position</strong></p>
+                    <p>The pivot at (${pivotPosition.row + 1}, ${col + 1}) is in the current pivot row ${this.nextPivotRow + 1}. No row swap needed.</p>
+                `,
+                matrix: structuredClone(this.matrix.data),
+                pivotCols: [...this.pivotCols],
+                augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                pivots: structuredClone(this.pivots),
+            };
+        }
+
+        // Scale pivot
+        yield* this.scalePivotRow(this.nextPivotRow, col);
+
+        // Eliminate (depends on process type)
+        if (this.processType === 'inverse') {
+            yield* this.eliminateAllRows(this.nextPivotRow, col);
+        } else {
+            // Eliminate only BELOW the pivot (phase 1)
+            yield* this.eliminateBelow(this.nextPivotRow, col);
+        }
+
+        // Process specific yield if provided
+        if (processSpecificYield) {
+            yield processSpecificYield(col, this.nextPivotRow);
+        }
+
+        // to form the echelon
+        this.nextPivotRow++;
+    }
+
+    // moves the pivot at column `col` from `fromRow` to `toRow` by swapping them
+    *swapRows(fromRow, toRow, col) {
+        yield {
+            phase: this.phase,
+            action: 'swap_needed',
+            description: `
+                <p><strong>Row Swap Required</strong></p>
+                <p>The pivot at (${fromRow + 1}, ${col + 1}) is not in the current pivot row ${toRow + 1}. 
+                For proper echelon form, pivots must move down and to the right.</p>
+                <p>Swapping row ${fromRow + 1} with row ${toRow + 1} to bring the pivot to the correct position.</p>
+            `,
+            matrix: structuredClone(this.matrix.data),
+            pivotCols: [...this.pivotCols],
+            augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+            pivots: structuredClone(this.pivots),
+        };
+
+        this.matrix = Matrix.switchRows(this.matrix, fromRow, toRow);
+        if (this.augmentedVector) {
+            [this.augmentedVector[fromRow], this.augmentedVector[toRow]] =
+                [this.augmentedVector[toRow], this.augmentedVector[fromRow]];
+        }
+
+        // Update pivot position
+        const pivotIndex = this.pivots.findIndex(p => p.row === fromRow && p.col === col);
+        if (pivotIndex !== -1) {
+            this.pivots[pivotIndex].row = toRow;
+        }
+
+        yield {
+            phase: this.phase,
+            action: 'swap',
+            description: `
+                <p><strong>Rows Swapped Successfully</strong></p>
+                <p>Row ${fromRow + 1} and Row ${toRow + 1} have been swapped.</p>
+                <p>The pivot is now at position (${toRow + 1}, ${col + 1}).</p>
+            `,
+            matrix: structuredClone(this.matrix.data),
+            pivotCols: [...this.pivotCols],
+            augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+            pivots: structuredClone(this.pivots)
+        };
+    }
+
+    // scales the pivot row mat[row] based on the pivot at mat[row][col]
+    *scalePivotRow(row, col) {
+        const currentPivot = this.matrix.data[row][col];
+
+        // Not equal to one; scaling needed.
+        if (Math.abs(currentPivot - 1) > 1e-10) {
+            const scale = 1 / currentPivot;
+
+            yield {
+                phase: this.phase,
+                action: 'scale_explanation',
+                description: `
+                    <p><strong>Scaling Pivot Row</strong></p>
+                    <p>To make the pivot equal to 1 (required for RREF), we'll scale row ${row + 1} by the reciprocal of the pivot value.</p>
+                    <p><strong>Calculation:</strong> Scale factor = 1 / ${formatNumber(currentPivot)} = ${formatNumber(scale)}</p>
+                    <p>We'll multiply every element in row ${row + 1} by ${formatNumber(scale)}.</p>
+                `,
+                matrix: structuredClone(this.matrix.data),
+                pivotCols: [...this.pivotCols],
+                augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                pivots: structuredClone(this.pivots),
+            };
+
+            this.matrix.data[row] = Matrix.scalarVectorProduct(this.matrix.data[row], scale);
+            if (this.augmentedVector) this.augmentedVector[row] *= scale;
+
+            yield {
+                phase: this.phase,
+                action: 'scale',
+                description: `
+                    <p><strong>Row Scaled Successfully</strong></p>
+                    <p>Row ${row + 1} has been multiplied by ${formatNumber(scale)}.</p>
+                    <p>The pivot at (${row + 1}, ${col + 1}) is now exactly 1.</p>
+                `,
+                matrix: structuredClone(this.matrix.data),
+                pivotCols: [...this.pivotCols],
+                augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                pivots: structuredClone(this.pivots),
+            };
+        } else {
+            // Equal to one; no scaling needed.
+            yield {
+                phase: this.phase,
+                action: 'pivot_already_one',
+                description: `
+                    <p><strong>Pivot Already Equal to 1</strong></p>
+                    <p>The pivot at (${row + 1}, ${col + 1}) is already 1. No scaling needed.</p>
+                `,
+                matrix: structuredClone(this.matrix.data),
+                pivotCols: [...this.pivotCols],
+                augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                pivots: structuredClone(this.pivots),
+            };
+        }
+    }
+
+    // eliminates below the pivot at mat[row][col]
+    *eliminateBelow(row, col) {
+        let eliminationSteps = [];
+
+        for (let i = row + 1; i < this.matrix.rows; i++) {
+            if (Math.abs(this.matrix.data[i][col]) > 1e-10) {
+                const targetValue = this.matrix.data[i][col];
+                const factor = -targetValue;
+
+                eliminationSteps.push({ row: i, targetValue, factor });
+
+                yield {
+                    phase: this.phase,
+                    action: 'eliminate_explanation',
+                    description: `
+                        <p><strong>Eliminating Entry Below Pivot</strong></p>
+                        <p>We need to eliminate the value ${formatNumber(targetValue)} at position (${i + 1}, ${col + 1}).</p>
+                        <p>Row ${i + 1} → Row ${i + 1} + (${formatNumber(factor)}) × Row ${row + 1}</p>
+                        <p>This works because: ${formatNumber(targetValue)} + (${formatNumber(factor)} × 1) = 0</p>
+                        <p><em>Note: In Gaussian Elimination, we only eliminate entries below the pivot.</em></p>
+                    `,
+                    matrix: structuredClone(this.matrix.data),
+                    pivotCols: [...this.pivotCols],
+                    augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                    targetPosition: { row: i, col },
+                    pivots: structuredClone(this.pivots),
+                };
+
+                this.matrix.data[i] = Matrix.sumRows(this.matrix, row, i, factor);
+                if (this.augmentedVector) this.augmentedVector[i] += factor * this.augmentedVector[row];
+
+                yield {
+                    phase: this.phase,
+                    action: 'eliminate',
+                    description: `
+                        <p><strong>Entry Eliminated Successfully</strong></p>
+                        <p>Applied: Row ${i + 1} → Row ${i + 1} + (${formatNumber(factor)}) × Row ${row + 1}</p>
+                        <p>The entry at (${i + 1}, ${col + 1}) is now zero.</p>
+                    `,
+                    matrix: structuredClone(this.matrix.data),
+                    pivotCols: [...this.pivotCols],
+                    augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                    pivots: structuredClone(this.pivots)
+                };
+            }
+        }
+
+        // No elimination needed
+        if (eliminationSteps.length === 0) {
+            yield {
+                phase: this.phase,
+                action: 'no_elimination_needed',
+                description: `
+                    <p><strong>No Elimination Needed Below Pivot</strong></p>
+                    <p>All entries below the pivot at (${row + 1}, ${col + 1}) are already zero.</p>
+                `,
+                matrix: structuredClone(this.matrix.data),
+                pivotCols: [...this.pivotCols],
+                augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                pivots: structuredClone(this.pivots),
+            };
+        }
+    }
+
+    // eliminates both below and above the pivot at mat[row][col]
+    *eliminateAllRows(row, col) {
+        yield {
+            phase: this.phase,
+            action: 'eliminate_explanation',
+            description: `<p><strong>Eliminating column ${col + 1}</strong></p>
+                <p>Making all other entries in column ${col + 1} equal to zero.</p>
+                <p>We'll eliminate both above and below the pivot since this is Gauss-Jordan.</p>`,
+            matrix: structuredClone(this.matrix.data),
+            pivotCols: [...this.pivotCols],
+            augmented: true
+        };
+
+        for (let i = 0; i < this.matrix.rows; i++) {
+            if (i !== row && Math.abs(this.matrix.data[i][col]) > 1e-10) {
+                const factor = -this.matrix.data[i][col];
+
+                yield {
+                    phase: this.phase,
+                    action: 'eliminate_row',
+                    description: `<p><strong>Eliminating row ${i + 1}</strong></p>
+                        <p>Row ${i + 1} → Row ${i + 1} + (${formatNumber(factor)}) x Row ${row + 1}</p>`,
+                    matrix: structuredClone(this.matrix.data),
+                    pivotCols: [...this.pivotCols],
+                    targetRow: i,
+                    augmented: true
+                };
+
+                this.matrix.data[i] = Matrix.sumRows(this.matrix, row, i, factor);
+
+                yield {
+                    phase: this.phase,
+                    action: 'row_eliminated',
+                    description: `<p><strong>Row ${i + 1} eliminated successfully</strong></p>
+                        <p>Entry at (${i + 1}, ${col + 1}) is now zero.</p>`,
+                    matrix: structuredClone(this.matrix.data),
+                    pivotCols: [...this.pivotCols],
+                    augmented: true
+                };
+            }
+        }
+    }
+
+    // Back elimination to reach RREF
+    *phase2BackElimination() {
+        yield {
+            phase: this.phase,
+            action: 'gauss_jordan_start',
+            description: `
+                <p><strong>PHASE 2: Back elimination to RREF</strong></p>
+                <p>In this phase, we'll:</p>
+                <ul>
+                    <li>Work from the bottom-right pivot upward</li>
+                    <li>Eliminate entries <strong>above</strong> each pivot</li>
+                    <li>This will create zeros above each pivot, completing the RREF</li>
+                </ul>
+            `,
+            matrix: structuredClone(this.matrix.data),
+            pivotCols: [...this.pivotCols],
+            augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+            pivots: structuredClone(this.pivots),
+        };
+
+        // Process pivots from bottom to top
+        for (let p = this.pivots.length - 1; p >= 0; p--) {
+            const pivot = this.pivots[p];
+            const pivotRow = pivot.row;
+            const pivotCol = pivot.col;
+
+            yield {
+                phase: this.phase,
+                action: 'back_substitute_start',
+                description: `
+                    <p><strong>Processing Pivot at (${pivotRow + 1}, ${pivotCol + 1}) in Phase 2</strong></p>
+                    <p>We'll now eliminate all entries above this pivot to complete column ${pivotCol + 1}.</p>
+                    <p>Working from the bottom up ensures we don't disturb previously cleared columns.</p>
+                `,
+                matrix: structuredClone(this.matrix.data),
+                pivotCols: [...this.pivotCols],
+                augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                pivots: structuredClone(this.pivots),
+                currentPivot: pivot,
+            };
+
+            let eliminationSteps = [];
+
+            // Eliminate above the current pivot
+            for (let i = 0; i < pivotRow; i++) {
+                // If non zero, eliminate.
+                if (Math.abs(this.matrix.data[i][pivotCol]) > 1e-10) {
+                    const targetValue = this.matrix.data[i][pivotCol];
+                    const factor = -targetValue;
+
+                    eliminationSteps.push({ row: i, targetValue, factor });
+
+                    yield {
+                        phase: this.phase,
+                        action: 'eliminate_above_explanation',
+                        description: `
+                            <p><strong>Eliminating Entry Above Pivot</strong></p>
+                            <p>We need to eliminate the value ${formatNumber(targetValue)} at position (${i + 1}, ${pivotCol + 1}).</p>
+                            <p>Row ${i + 1} → Row ${i + 1} + (${formatNumber(factor)}) × Row ${pivotRow + 1}</p>
+                            <p>This works because: ${formatNumber(targetValue)} + (${formatNumber(factor)} × 1) = 0</p>
+                            <p><em>Note: In Phase 2, we only eliminate entries above the pivot.</em></p>
+                        `,
+                        matrix: structuredClone(this.matrix.data),
+                        pivotCols: [...this.pivotCols],
+                        augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                        targetPosition: { row: i, col: pivotCol },
+                        pivots: structuredClone(this.pivots),
+                    };
+
+                    this.matrix.data[i] = Matrix.sumRows(this.matrix, pivotRow, i, factor);
+                    if (this.augmentedVector) this.augmentedVector[i] += factor * this.augmentedVector[pivotRow];
+
+                    yield {
+                        phase: this.phase,
+                        action: 'eliminate_above',
+                        description: `
+                            <p><strong>Entry Above Eliminated Successfully</strong></p>
+                            <p>Applied: Row ${i + 1} → Row ${i + 1} + (${formatNumber(factor)}) × Row ${pivotRow + 1}</p>
+                            <p>The entry at (${i + 1}, ${pivotCol + 1}) is now zero.</p>
+                        `,
+                        matrix: structuredClone(this.matrix.data),
+                        pivotCols: [...this.pivotCols],
+                        augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                        pivots: structuredClone(this.pivots)
+                    };
+                }
+                // If zero, do nothing.
+            }
+
+            // No elimination needed.
+            if (eliminationSteps.length === 0) {
+                yield {
+                    phase: this.phase,
+                    action: 'no_elimination_above_needed',
+                    description: `
+                        <p><strong>No Elimination Needed Above Pivot</strong></p>
+                        ${pivotRow > 0 ? `<p>All entries above the pivot at (${pivotRow + 1}, ${pivotCol + 1}) are already zero.</p>` : "<p>This is the first row, so there are no entries above the pivot.</p>"}
+                    `,
+                    matrix: structuredClone(this.matrix.data),
+                    pivotCols: [...this.pivotCols],
+                    augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                    pivots: structuredClone(this.pivots),
+                };
+            }
+
+            // Pivot done.
+            yield {
+                phase: this.phase,
+                action: 'pivot_phase2_complete',
+                description: `
+                    <p><strong>Phase 2 Complete for Pivot at (${pivotRow + 1}, ${pivotCol + 1})!</strong></p>
+                    <p>Column ${pivotCol + 1} is now fully processed.</p>
+                    <ul>
+                        <li>The pivot is 1</li>
+                        <li>All entries below the pivot are zero</li>
+                        <li>All entries above the pivot are zero</li>
+                        <li>This column is now in perfect RREF form</li>
+                    </ul>
+                `,
+                matrix: structuredClone(this.matrix.data),
+                pivotCols: [...this.pivotCols],
+                augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+                pivots: structuredClone(this.pivots),
+            };
+        }
+    }
+
+    // REF message
+    *finalizeRef() {
+        const numFreeCols = this.matrix.cols - this.pivotCols.length;
+
+        yield {
+            phase: this.phase,
+            action: 'final',
+            description: `
+                <p><strong>Matrix Successfully Reduced to Row Echelon Form (REF)</strong></p>
+                <p><strong>Summary:</strong></p>
+                <ul>
+                    <li>Found ${this.pivotCols.length} pivot columns: ${this.pivotCols.map(col => col + 1).join(', ')}</li>
+                    <li>Matrix rank = ${this.pivotCols.length}</li>
+                    <li>${numFreeCols} free variable${numFreeCols !== 1 ? 's' : ""}</li>
+                </ul>
+                <p><strong>Process Completed:</strong></p>
+                <ul>
+                    <li>Performed forward elimination (Gaussian elimination)</li>
+                    <li>All pivots are 1 and positioned in staircase form</li>
+                    <li>All entries <strong>below</strong> each pivot are zero</li>
+                </ul>
+                <p>The matrix now satisfies all <strong>Row Echelon Form (REF)</strong> conditions:</p>
+                <ol>
+                    <li>All nonzero rows are above any rows of all zeros</li>
+                    <li>Each pivot (leading 1) appears to the right of the pivot above it</li>
+                    <li>All entries below each pivot are zero</li>
+                </ol>
+                <p>You can stop here or continue to <strong>back elimination</strong> to reach <strong>Reduced Row Echelon Form (RREF)</strong>.</p>
+            `,
+            matrix: structuredClone(this.matrix.data),
+            pivotCols: [...this.pivotCols],
+            augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+            rank: this.pivotCols.length,
+            freeVariables: this.matrix.cols - this.pivotCols.length,
+            pivots: structuredClone(this.pivots)
+        };
+    }
+
+    // RREF message
+    *finalizeRref() {
+        const numFreeCols = this.matrix.cols - this.pivotCols.length;
+
+        // Done.
+        yield {
+            phase: this.phase,
+            action: 'final',
+            description: `
+                <p><strong>Matrix Successfully Reduced to RREF</strong></p>
+                <p><strong>Summary:</strong></p>
+                <ul>
+                    <li>Found ${this.pivotCols.length} pivot columns: ${this.pivotCols.map(col => col + 1).join(', ')}</li>
+                    <li>Matrix rank = ${this.pivotCols.length}</li>
+                    <li>${numFreeCols} free variable${numFreeCols !== 1 ? 's' : ""}</li>
+                </ul>
+                <p><strong>Two-Phase Process Completed:</strong></p>
+                <ol>
+                    <li><strong>Phase 1:</strong> Forward elimination to Row Echelon Form</li>
+                    <li><strong>Phase 2:</strong> Back elimination to Reduced Row Echelon Form</li>
+                </ol>
+                <p>The matrix now satisfies all RREF conditions:</p>
+                <ol>
+                    <li>All zero rows are at the bottom</li>
+                    <li>Each pivot is 1 and is the only non-zero in its column</li>
+                    <li>Pivots move down and to the right</li>
+                    <li>Each pivot is to the right of the pivot above it</li>
+                </ol>
+            `,
+            matrix: structuredClone(this.matrix.data),
+            pivotCols: [...this.pivotCols],
+            augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+            rank: this.pivotCols.length,
+            freeVariables: this.matrix.cols - this.pivotCols.length,
+            pivots: structuredClone(this.pivots)
+        };
+    }
+
+    // No more rows message
+    *handleNoMoreRows(col) {
+        yield {
+            phase: this.phase,
+            action: 'no_more_rows',
+            description: `
+                no rows left. terminating gauss elimination...
+            `,
+            matrix: structuredClone(this.matrix.data),
+            pivotCols: [...this.pivotCols],
+            augmentedVector: this.augmentedVector ? [...this.augmentedVector] : null,
+            currentColumn: col,
+            searchStart: this.nextPivotRow,
+            pivots: structuredClone(this.pivots),
+        };
+    }
+}
+
 export const Matrix = {
     create(data) {
         const matrix = {
@@ -81,16 +791,8 @@ export const Matrix = {
 
     *elimination(matrix, augmentedVector = null, jordan = true) {
         // TODO: change phase from always being rref to `mode` instead or possibly `elimination`
-        const mode = jordan ? 'rref' : 'ref';
         const modeName = jordan ? 'Reduced Row Echelon Form (RREF)' : 'Row Echelon Form (REF)';
         const processName = jordan ? 'Gauss-Jordan Elimination' : 'Gaussian Elimination';
-
-        let currentMatrix = Matrix.clone(matrix);
-        let aug = augmentedVector ? [...augmentedVector] : null;
-        const pivotCols = [];
-        let nextPivotRow = 0;
-        const pivots = [];
-
 
         yield {
             phase: 'rref',
@@ -100,10 +802,10 @@ export const Matrix = {
             <strong>Phase 2:</strong> Back elimination to get Reduced Row Echelon Form (RREF)` :
                 `<br>We'll perform forward elimination only to reach Row Echelon Form (REF).`
                 }`,
-            matrix: structuredClone(currentMatrix.data),
-            pivotCols: [...pivotCols],
-            augmentedVector: aug ? [...aug] : null,
-            pivots: structuredClone(pivots),
+            matrix: structuredClone(matrix.data),
+            pivotCols: [],
+            augmentedVector: augmentedVector ? [...augmentedVector] : null,
+            pivots: [],
         };
 
         // PHASE 1: Forward elimination to REF
@@ -125,600 +827,39 @@ export const Matrix = {
                     : '<p><em>This completes the Gaussian Elimination process.</em>'
                 }
             `,
-            matrix: structuredClone(currentMatrix.data),
-            pivotCols: [...pivotCols],
-            augmentedVector: aug ? [...aug] : null,
-            pivots: structuredClone(pivots),
+            matrix: structuredClone(matrix.data),
+            pivotCols: [],
+            augmentedVector: augmentedVector ? [...augmentedVector] : null,
+            pivots: [],
         };
 
-        // Iterate over each column. The actual start of phase 1 (Gauss).
-        for (let j = 0; j < currentMatrix.cols; j++) {
-
-            // If no rows left => break. All pivots were found.
-            if (nextPivotRow >= currentMatrix.rows) {
-                yield {
-                    phase: 'rref',
-                    action: 'no_more_rows',
-                    description: `
-                        no rows left. terminating gauss elimination... (this's a placeholder!!!!! remember to add an actual message)
-                    `,
-                    matrix: structuredClone(currentMatrix.data),
-                    pivotCols: [...pivotCols],
-                    augmentedVector: aug ? [...aug] : null,
-                    currentColumn: j,
-                    searchStart: nextPivotRow,
-                    pivots: structuredClone(pivots),
-                };
-                break;
-            }
-
-            yield {
-                phase: 'rref',
-                action: 'search_pivot',
-                description: `
-                    <p><strong>Searching for pivot in column ${j + 1}</strong></p>
-                    <p>Looking for the first non-zero entry in column ${j + 1}, starting from row ${nextPivotRow + 1} downward. 
-                    ${nextPivotRow > 0 ? `We skip rows above ${nextPivotRow + 1} because they already have pivots in previous columns.</p>` : ""}
-                `,
-                matrix: structuredClone(currentMatrix.data),
-                pivotCols: [...pivotCols],
-                augmentedVector: aug ? [...aug] : null,
-                currentColumn: j,
-                searchStart: nextPivotRow,
-                pivots: structuredClone(pivots),
-            };
-
-            // Searching for a pivot
-            let searchDetails = [];
-            let pivotRow = null;
-            const details = {
-                nonZero: {},
-                one: {},
-                negativeOne: {}
-            };
-
-            // Searching for pivot
-            for (let i = nextPivotRow; i < currentMatrix.rows; i++) {
-                const value = currentMatrix.data[i][j];
-                searchDetails.push(`Row ${i + 1}: ${formatNumber(value)}`);
-
-                // Best case: value is 1; immediate pivot
-                if (Math.abs(value - 1) < 1e-10 && details.one.x === undefined) {
-                    details.one = { value, x: i, y: j };
-                    break; // stop searching
-                }
-
-                // Next best: value is -1; store it, but keep looking for a 1
-                else if (Math.abs(value + 1) < 1e-10 && details.negativeOne.x === undefined) {
-                    details.negativeOne = { value, x: i, y: j };
-                }
-
-                // Otherwise, store first non-zero
-                else if (Math.abs(value) > 1e-10 && details.nonZero.x === undefined) {
-                    details.nonZero = { value, x: i, y: j };
-                }
-            }
-
-            // Found a 1. Perfect pivot.
-            if (details.one.x !== undefined) {
-                const { x: row, y: col } = details.one;
-                pivotRow = row;
-                pivotCols.push(col);
-                const pivotPosition = { row, col };
-                pivots.push(pivotPosition);
-
-                yield {
-                    phase: 'rref',
-                    action: 'perfect_pivot_found',
-                    description: `
-                        <p><strong>Ideal Pivot Found (1)</strong></p>
-                        <p>In column ${j + 1}, we found a <strong>perfect pivot</strong> at position (${row + 1}, ${col + 1}).</p>
-                        <p>Since it's already 1, we can avoid division and keep calculations simpler (no fractions introduced).</p>
-                        <p>We'll bring this row up to the pivot position (${nextPivotRow + 1}) if necessary.</p>
-                        <p><strong>Search details:</strong></p>
-                        ${searchDetails.map((detail, idx) =>
-                        idx === row - nextPivotRow
-                            ? `- ${detail} ← <strong>SELECTED AS PERFECT PIVOT</strong>`
-                            : `• ${detail}`
-                    ).join('<br>')}
-                    `,
-                    matrix: structuredClone(currentMatrix.data),
-                    pivotCols: [...pivotCols],
-                    augmentedVector: aug ? [...aug] : null,
-                    pivotPosition,
-                    pivots: structuredClone(pivots),
-                };
-            }
-
-            // Found a -1. Second best pivot.
-            else if (details.negativeOne.x !== undefined) {
-                const { x: row, y: col, value } = details.negativeOne;
-                pivotRow = row;
-                pivotCols.push(col);
-                const pivotPosition = { row, col };
-                pivots.push(pivotPosition);
-
-                yield {
-                    phase: 'rref',
-                    // TODO: add corresponding name
-                    action: 'negative_pivot_found',
-                    description: `
-                        <p><strong>Convenient Pivot Found (-1)</strong></p>
-                        <p>Found a pivot candidate of -1 at position (${row + 1}, ${col + 1}).</p>
-                        <p>This is almost as good as 1 since we can simply multiply the row by -1 instead of dividing by a messy number.</p>
-                        <p>We'll simply bring this row to the pivot position (${nextPivotRow + 1}) and flip its sign.</p>
-                        <p><strong>Search details:</strong></p>
-                        ${searchDetails.map((detail, idx) =>
-                        idx === row - nextPivotRow
-                            ? `- ${detail} ← <strong>SELECTED AS PIVOT (-1)</strong>`
-                            : `• ${detail}`
-                    ).join('<br>')}
-                    `,
-                    matrix: structuredClone(currentMatrix.data),
-                    pivotCols: [...pivotCols],
-                    augmentedVector: aug ? [...aug] : null,
-                    pivotPosition,
-                    pivots: structuredClone(pivots),
-                };
-            }
-
-            // Found a nonzero. The only choice at this point.
-            else if (details.nonZero.x !== undefined) {
-                const { x: row, y: col, value } = details.nonZero;
-                pivotRow = row;
-                pivotCols.push(col);
-                const pivotPosition = { row, col };
-                pivots.push(pivotPosition);
-
-                yield {
-                    phase: 'rref',
-                    action: 'pivot_found',
-                    description: `
-                        <p><strong>Pivot Found</strong></p>
-                        <p>Found first non-zero entry at position (${row + 1}, ${col + 1}) with value ${formatNumber(value)}.</p>
-                        <p><strong>Search details:</strong></p>
-                        ${searchDetails.map((detail, idx) =>
-                        idx === row - nextPivotRow
-                            ? `- ${detail} ← <strong>SELECTED AS PIVOT</strong>`
-                            : `• ${detail}`
-                    ).join('<br>')}
-                    `,
-                    matrix: structuredClone(currentMatrix.data),
-                    pivotCols: [...pivotCols],
-                    augmentedVector: aug ? [...aug] : null,
-                    pivotPosition,
-                    pivots: structuredClone(pivots),
-                };
-            }
-
-            // No pivot found.
-            else {
-                yield {
-                    phase: 'rref',
-                    action: 'no_pivot_detailed',
-                    description: `
-                        <p><strong>No Pivot Found in Column ${j + 1}</strong></p>
-                        ${searchDetails.length !== 0
-                            ? `<p><strong>Search Process:</strong></p>
-                            ${searchDetails.map(detail => `• ${detail}`).join('<br>')}`
-                            : ""}
-                        <p><strong>Why this matters:</strong></p>
-                        <ul>
-                            <li>All entries in column ${j + 1} from row ${nextPivotRow + 1} downward are zero</li>
-                            <li>This means variable x<sub>${j + 1}</sub> will be a <strong>free variable</strong></li>
-                            <li>Free variables can take any value in the solution</li>
-                            <li>The system may have infinitely many solutions</li>
-                        </ul>
-                        <p>We'll continue to the next column without increasing the pivot row counter.</p>
-                    `,
-                    matrix: structuredClone(currentMatrix.data),
-                    pivotCols: [...pivotCols],
-                    augmentedVector: aug ? [...aug] : null,
-                    searchDetails,
-                    pivots: structuredClone(pivots),
-                };
-            }
-
-            // If pivot found: swapping, scaling, and elimination are done here.
-            if (pivotRow !== null) {
-                // Swap needed
-                if (pivotRow !== nextPivotRow) {
-                    yield {
-                        phase: 'rref',
-                        action: 'swap_needed',
-                        description: `
-                <p><strong>Row Swap Required</strong></p>
-                <p>The pivot at (${pivotRow + 1}, ${j + 1}) is not in the current pivot row ${nextPivotRow + 1}. 
-                For proper echelon form, pivots must move down and to the right.</p>
-                <p>Swapping row ${pivotRow + 1} with row ${nextPivotRow + 1} to bring the pivot to the correct position.</p>
-            `,
-                        matrix: structuredClone(currentMatrix.data),
-                        pivotCols: [...pivotCols],
-                        augmentedVector: aug ? [...aug] : null,
-                        pivots: structuredClone(pivots),
-                    };
-
-                    currentMatrix = Matrix.switchRows(currentMatrix, pivotRow, nextPivotRow);
-                    if (aug) [aug[pivotRow], aug[nextPivotRow]] = [aug[nextPivotRow], aug[pivotRow]];
-
-                    const pivotIndex = pivots.findIndex(p => p.row === pivotRow && p.col === j);
-                    if (pivotIndex !== -1) {
-                        pivots[pivotIndex].row = nextPivotRow;
-                    }
-
-                    yield {
-                        phase: 'rref',
-                        action: 'swap',
-                        description: `
-                <p><strong>Rows Swapped Successfully</strong></p>
-                <p>Row ${pivotRow + 1} and Row ${nextPivotRow + 1} have been swapped.</p>
-                <p>The pivot is now at position (${nextPivotRow + 1}, ${j + 1}).</p>
-            `,
-                        matrix: structuredClone(currentMatrix.data),
-                        pivotCols: [...pivotCols],
-                        augmentedVector: aug ? [...aug] : null,
-                        pivots: structuredClone(pivots)
-                    };
-                }
-                // Correct position
-                else {
-                    yield {
-                        phase: 'rref',
-                        action: 'pivot_correct_position',
-                        description: `
-                <p><strong>Pivot in Correct Position</strong></p>
-                <p>The pivot at (${pivotRow + 1}, ${j + 1}) is in the current pivot row ${nextPivotRow + 1}. No row swap needed.</p>
-            `,
-                        matrix: structuredClone(currentMatrix.data),
-                        pivotCols: [...pivotCols],
-                        augmentedVector: aug ? [...aug] : null,
-                        pivots: structuredClone(pivots),
-                    };
-                }
-
-                const currentPivot = currentMatrix.data[nextPivotRow][j];
-                // Not equal to one; scaling needed.
-                if (Math.abs(currentPivot - 1) > 1e-10) {
-                    const scale = 1 / currentPivot;
-
-                    yield {
-                        phase: 'rref',
-                        action: 'scale_explanation',
-                        description: `
-                            <p><strong>Scaling Pivot Row</strong></p>
-                            <p>To make the pivot equal to 1 (required for RREF), we'll scale row ${nextPivotRow + 1} by the reciprocal of the pivot value.</p>
-                            <p><strong>Calculation:</strong> Scale factor = 1 / ${formatNumber(currentPivot)} = ${formatNumber(scale)}</p>
-                            <p>We'll multiply every element in row ${nextPivotRow + 1} by ${formatNumber(scale)}.</p>
-                        `,
-                        matrix: structuredClone(currentMatrix.data),
-                        pivotCols: [...pivotCols],
-                        augmentedVector: aug ? [...aug] : null,
-                        pivots: structuredClone(pivots),
-                    };
-
-                    currentMatrix.data[nextPivotRow] = Matrix.scalarVectorProduct(
-                        currentMatrix.data[nextPivotRow],
-                        scale
-                    );
-                    if (aug) aug[nextPivotRow] *= scale;
-
-                    yield {
-                        phase: 'rref',
-                        action: 'scale',
-                        description: `
-                            <p><strong>Row Scaled Successfully</strong></p>
-                            <p>Row ${nextPivotRow + 1} has been multiplied by ${formatNumber(scale)}.</p>
-                            <p>The pivot at (${nextPivotRow + 1}, ${j + 1}) is now exactly 1.</p>
-                        `,
-                        matrix: structuredClone(currentMatrix.data),
-                        pivotCols: [...pivotCols],
-                        augmentedVector: aug ? [...aug] : null,
-                        pivots: structuredClone(pivots),
-                    };
-                }
-                // Equal to one; no scaling needed.
-                else {
-                    yield {
-                        phase: 'rref',
-                        action: 'pivot_already_one',
-                        description: `
-                            <p><strong>Pivot Already Equal to 1</strong></p>
-                            <p>The pivot at (${nextPivotRow + 1}, ${j + 1}) is already 1. No scaling needed.</p>
-                        `,
-                        matrix: structuredClone(currentMatrix.data),
-                        pivotCols: [...pivotCols],
-                        augmentedVector: aug ? [...aug] : null,
-                        pivots: structuredClone(pivots),
-                    };
-                }
-
-                // PHASE 1: Eliminate only BELOW the pivot
-                let eliminationSteps = [];
-
-                for (let i = nextPivotRow + 1; i < currentMatrix.rows; i++) {
-                    if (Math.abs(currentMatrix.data[i][j]) > 1e-10) {
-                        const targetValue = currentMatrix.data[i][j];
-                        const factor = -targetValue;
-
-                        eliminationSteps.push({ row: i, targetValue, factor });
-
-                        yield {
-                            phase: 'rref',
-                            action: 'eliminate_explanation',
-                            description: `
-                                <p><strong>Eliminating Entry Below Pivot</strong></p>
-                                <p>We need to eliminate the value ${formatNumber(targetValue)} at position (${i + 1}, ${j + 1}).</p>
-                                <p>Row ${i + 1} → Row ${i + 1} + (${formatNumber(factor)}) × Row ${nextPivotRow + 1}</p>
-                                <p>This works because: ${formatNumber(targetValue)} + (${formatNumber(factor)} × 1) = 0</p>
-                                <p><em>Note: In Gaussian Elimination, we only eliminate entries below the pivot.</em></p>
-                            `,
-                            matrix: structuredClone(currentMatrix.data),
-                            pivotCols: [...pivotCols],
-                            augmentedVector: aug ? [...aug] : null,
-                            targetPosition: { row: i, col: j },
-                            pivots: structuredClone(pivots),
-                        };
-
-                        currentMatrix.data[i] = Matrix.sumRows(currentMatrix, nextPivotRow, i, factor);
-                        if (aug) aug[i] += factor * aug[nextPivotRow];
-
-                        yield {
-                            phase: 'rref',
-                            action: 'eliminate',
-                            description: `
-                                <p><strong>Entry Eliminated Successfully</strong></p>
-                                <p>Applied: Row ${i + 1} → Row ${i + 1} + (${formatNumber(factor)}) × Row ${nextPivotRow + 1}</p>
-                                <p>The entry at (${i + 1}, ${j + 1}) is now zero.</p>
-                            `,
-                            matrix: structuredClone(currentMatrix.data),
-                            pivotCols: [...pivotCols],
-                            augmentedVector: aug ? [...aug] : null,
-                            pivots: structuredClone(pivots)
-                        };
-                    }
-                }
-
-                // No elimination needed
-                if (eliminationSteps.length === 0) {
-                    yield {
-                        phase: 'rref',
-                        action: 'no_elimination_needed',
-                        description: `
-                            <p><strong>No Elimination Needed Below Pivot</strong></p>
-                            <p>All entries below the pivot at (${nextPivotRow + 1}, ${j + 1}) are already zero.</p>
-                        `,
-                        matrix: structuredClone(currentMatrix.data),
-                        pivotCols: [...pivotCols],
-                        augmentedVector: aug ? [...aug] : null,
-                        pivots: structuredClone(pivots),
-                    };
-                }
-
-                // Gauss complete for current pivot.
-                yield {
-                    phase: 'rref',
-                    action: 'pivot_forward_complete',
-                    description: `
-            <p><strong>Forward elimination Complete for Column ${j + 1}!</strong></p>
-            <p>Column ${j + 1} is now processed${jordan ? ' in Phase 1' : ''}.</p>
-            <ul>
-                <li>The pivot is 1 at position (${nextPivotRow + 1}, ${j + 1})</li>
-                <li>All entries below the pivot are zero</li>
-                ${jordan ? '<li>Entries above the pivot will be handled in Phase 2</li>' : ''}
-            </ul>
-        `,
-                    matrix: structuredClone(currentMatrix.data),
-                    pivotCols: [...pivotCols],
-                    augmentedVector: aug ? [...aug] : null,
-                    pivots: structuredClone(pivots),
-                };
-
-                nextPivotRow++;
-            }
-
-            // If no pivot found, nothing happens. Just search the next column.
-        }
-
-        const numFreeCols = currentMatrix.cols - pivotCols.length;
-
-        // Conditionally skip phase 2
-        if (!jordan) {
-            yield {
-                phase: 'rref',
-                action: 'final',
-                description: `
-                    <p><strong>Matrix Successfully Reduced to Row Echelon Form (REF)</strong></p>
-                    <p><strong>Summary:</strong></p>
-                    <ul>
-                        <li>Found ${pivotCols.length} pivot columns: ${pivotCols.map(col => col + 1).join(', ')}</li>
-                        <li>Matrix rank = ${pivotCols.length}</li>
-                        <li>${numFreeCols} free variable${numFreeCols !== 1 ? 's' : ""}</li>
-                    </ul>
-                    <p><strong>Process Completed:</strong></p>
-                    <ul>
-                        <li>Performed forward elimination (Gaussian elimination)</li>
-                        <li>All pivots are 1 and positioned in staircase form</li>
-                        <li>All entries <strong>below</strong> each pivot are zero</li>
-                    </ul>
-                    <p>The matrix now satisfies all <strong>Row Echelon Form (REF)</strong> conditions:</p>
-                    <ol>
-                        <li>All nonzero rows are above any rows of all zeros</li>
-                        <li>Each pivot (leading 1) appears to the right of the pivot above it</li>
-                        <li>All entries below each pivot are zero</li>
-                    </ol>
-                    <p>You can stop here or continue to <strong>back elimination</strong> to reach <strong>Reduced Row Echelon Form (RREF)</strong>.</p>
-                `,
-                matrix: structuredClone(currentMatrix.data),
-                pivotCols: [...pivotCols],
-                augmentedVector: aug ? [...aug] : null,
-                rank: pivotCols.length,
-                freeVariables: currentMatrix.cols - pivotCols.length,
-                pivots: structuredClone(pivots)
-            };
-            return;
-        }
-
-        // PHASE 2: Back elimination to get RREF
-        yield {
+        const eliminator = new GaussJordanEliminator(matrix, {
+            augmentedVector,
             phase: 'rref',
-            action: 'gauss_jordan_start',
+            processType: 'elimination'
+        });
+
+        yield* eliminator.gaussJordanElimination(jordan, (col, row) => ({
+            // Gauss complete for current pivot.
+            phase: 'rref',
+            action: 'pivot_forward_complete',
             description: `
-                <p><strong>PHASE 2: Back elimination to RREF</strong></p>
-                <p>In this phase, we'll:</p>
+                <p><strong>Forward elimination Complete for Column ${col + 1}!</strong></p>
+                <p>Column ${col + 1} is now processed${jordan ? ' in Phase 1' : ''}.</p>
                 <ul>
-                    <li>Work from the bottom-right pivot upward</li>
-                    <li>Eliminate entries <strong>above</strong> each pivot</li>
-                    <li>This will create zeros above each pivot, completing the RREF</li>
+                    <li>The pivot is 1 at position (${row + 1}, ${col + 1})</li>
+                    <li>All entries below the pivot are zero</li>
+                    ${jordan ? '<li>Entries above the pivot will be handled in Phase 2</li>' : ''}
                 </ul>
             `,
-            matrix: structuredClone(currentMatrix.data),
-            pivotCols: [...pivotCols],
-            augmentedVector: aug ? [...aug] : null,
-            pivots: structuredClone(pivots),
-        };
-
-        // Process pivots from bottom to top
-        for (let p = pivots.length - 1; p >= 0; p--) {
-            const pivot = pivots[p];
-            const pivotRow = pivot.row;
-            const pivotCol = pivot.col;
-
-            yield {
-                phase: 'rref',
-                action: 'back_substitute_start',
-                description: `
-                    <p><strong>Processing Pivot at (${pivotRow + 1}, ${pivotCol + 1}) in Phase 2</strong></p>
-                    <p>We'll now eliminate all entries above this pivot to complete column ${pivotCol + 1}.</p>
-                    <p>Working from the bottom up ensures we don't disturb previously cleared columns.</p>
-                `,
-                matrix: structuredClone(currentMatrix.data),
-                pivotCols: [...pivotCols],
-                augmentedVector: aug ? [...aug] : null,
-                pivots: structuredClone(pivots),
-                currentPivot: pivot,
-            };
-
-            let eliminationSteps = [];
-
-            // Eliminate above the current pivot
-            for (let i = 0; i < pivotRow; i++) {
-
-                // If non zero, eliminate.
-                if (Math.abs(currentMatrix.data[i][pivotCol]) > 1e-10) {
-                    const targetValue = currentMatrix.data[i][pivotCol];
-                    const factor = -targetValue;
-
-                    eliminationSteps.push({ row: i, targetValue, factor });
-
-                    yield {
-                        phase: 'rref',
-                        action: 'eliminate_above_explanation',
-                        description: `
-                            <p><strong>Eliminating Entry Above Pivot</strong></p>
-                            <p>We need to eliminate the value ${formatNumber(targetValue)} at position (${i + 1}, ${pivotCol + 1}).</p>
-                            <p>Row ${i + 1} → Row ${i + 1} + (${formatNumber(factor)}) × Row ${pivotRow + 1}</p>
-                            <p>This works because: ${formatNumber(targetValue)} + (${formatNumber(factor)} × 1) = 0</p>
-                            <p><em>Note: In Phase 2, we only eliminate entries above the pivot.</em></p>
-                        `,
-                        matrix: structuredClone(currentMatrix.data),
-                        pivotCols: [...pivotCols],
-                        augmentedVector: aug ? [...aug] : null,
-                        targetPosition: { row: i, col: pivotCol },
-                        pivots: structuredClone(pivots),
-                    };
-
-                    currentMatrix.data[i] = Matrix.sumRows(currentMatrix, pivotRow, i, factor);
-                    if (aug) aug[i] += factor * aug[pivotRow];
-
-                    yield {
-                        phase: 'rref',
-                        action: 'eliminate_above',
-                        description: `
-                            <p><strong>Entry Above Eliminated Successfully</strong></p>
-                            <p>Applied: Row ${i + 1} → Row ${i + 1} + (${formatNumber(factor)}) × Row ${pivotRow + 1}</p>
-                            <p>The entry at (${i + 1}, ${pivotCol + 1}) is now zero.</p>
-                        `,
-                        matrix: structuredClone(currentMatrix.data),
-                        pivotCols: [...pivotCols],
-                        augmentedVector: aug ? [...aug] : null,
-                        pivots: structuredClone(pivots)
-                    };
-                }
-
-                // If zero, do nothing.
-            }
-
-            // No elimination needed.
-            if (eliminationSteps.length === 0) {
-                yield {
-                    phase: 'rref',
-                    action: 'no_elimination_above_needed',
-                    description: `
-                        <p><strong>No Elimination Needed Above Pivot</strong></p>
-                        ${pivotRow > 0 ? `<p>All entries above the pivot at (${pivotRow + 1}, ${pivotCol + 1}) are already zero.</p>` : "<p>This is the first row, so there are no entries above the pivot.</p>"}
-                    `,
-                    matrix: structuredClone(currentMatrix.data),
-                    pivotCols: [...pivotCols],
-                    augmentedVector: aug ? [...aug] : null,
-                    pivots: structuredClone(pivots),
-                };
-            }
-
-            // Pivot done.
-            yield {
-                phase: 'rref',
-                action: 'pivot_phase2_complete',
-                description: `
-                    <p><strong>Phase 2 Complete for Pivot at (${pivotRow + 1}, ${pivotCol + 1})!</strong></p>
-                    <p>Column ${pivotCol + 1} is now fully processed.</p>
-                    <ul>
-                        <li>The pivot is 1</li>
-                        <li>All entries below the pivot are zero</li>
-                        <li>All entries above the pivot are zero</li>
-                        <li>This column is now in perfect RREF form</li>
-                    </ul>
-                `,
-                matrix: structuredClone(currentMatrix.data),
-                pivotCols: [...pivotCols],
-                augmentedVector: aug ? [...aug] : null,
-                pivots: structuredClone(pivots),
-            };
-        }
-
-        // Done.
-        yield {
-            phase: 'rref',
-            action: 'final',
-            description: `
-                <p><strong>Matrix Successfully Reduced to RREF</strong></p>
-                <p><strong>Summary:</strong></p>
-                <ul>
-                    <li>Found ${pivotCols.length} pivot columns: ${pivotCols.map(col => col + 1).join(', ')}</li>
-                    <li>Matrix rank = ${pivotCols.length}</li>
-                    <li>${numFreeCols} free variable${numFreeCols !== 1 ? 's' : ""}</li>
-                </ul>
-                <p><strong>Two-Phase Process Completed:</strong></p>
-                <ol>
-                    <li><strong>Phase 1:</strong> Forward elimination to Row Echelon Form</li>
-                    <li><strong>Phase 2:</strong> Back elimination to Reduced Row Echelon Form</li>
-                </ol>
-                <p>The matrix now satisfies all RREF conditions:</p>
-                <ol>
-                    <li>All zero rows are at the bottom</li>
-                    <li>Each pivot is 1 and is the only non-zero in its column</li>
-                    <li>Pivots move down and to the right</li>
-                    <li>Each pivot is to the right of the pivot above it</li>
-                </ol>
-            `,
-            matrix: structuredClone(currentMatrix.data),
-            pivotCols: [...pivotCols],
-            augmentedVector: aug ? [...aug] : null,
-            rank: pivotCols.length,
-            freeVariables: currentMatrix.cols - pivotCols.length,
-            pivots: structuredClone(pivots)
-        };
+            matrix: structuredClone(eliminator.matrix.data),
+            pivotCols: [...eliminator.pivotCols],
+            augmentedVector: eliminator.augmentedVector ? [...eliminator.augmentedVector] : null,
+            pivots: structuredClone(eliminator.pivots),
+        }));
     },
 
+    // TODO: break into functions like the eliminator
     *solveSystemSteps(matrix, solutionVector) {
         // Show RREF steps first
         for (const step of Matrix.elimination(matrix, solutionVector, true)) {
@@ -854,7 +995,6 @@ export const Matrix = {
             augmentedVector: b
         };
 
-
         // Unique solution
         if (rankA === rankAb && rankA === matrix.cols) {
             yield {
@@ -875,7 +1015,6 @@ export const Matrix = {
                 pivotCols,
                 augmentedVector: b
             };
-
 
             // Extract unique solution by just equalling each pivot variable to its corresponding value in the solution vector.
             const solution = new Array(matrix.cols).fill(0); // Initialize an array of 0s
@@ -901,7 +1040,6 @@ export const Matrix = {
 
         // Infinite solutions
         else if (rankA === rankAb && rankA < matrix.cols) {
-
             // Collect free columns
             const freeCols = [];
             for (let i = 0; i < matrix.cols; i++) {
@@ -911,14 +1049,14 @@ export const Matrix = {
             yield {
                 phase: 'analysis',
                 type: 'solution_type_determined',
-                description: `System has a <strong>unique solution</strong>`,
+                description: `System has <strong>infinite solutions</strong>`,
                 blocks: [
                     {
                         title: "Reasoning",
                         data: `
                             • rank(A) = rank([A|b]) = ${rankA}<br>
-                            • rank equals number of variables (n = ${matrix.cols})<br>
-                            • No free variables → Exactly one solution
+                            • rank < number of variables (n = ${matrix.cols})<br>
+                            • Free variables exist → Infinitely many solutions
                         `
                     }
                 ],
@@ -1027,13 +1165,10 @@ export const Matrix = {
                 };
             }
 
-
-
             // TODO: refactor this.
             // Currently using the x = xp + c1v1 + c2v2 + ... method
             // Just change the form of the equations in the previous step and use them here.
             // I'll also need to change the interface in the solutiondisplay file
-
 
             // => START
 
@@ -1117,7 +1252,6 @@ export const Matrix = {
                 pivotCols,
                 augmentedVector: b
             };
-
         }
     },
 
@@ -1231,6 +1365,7 @@ export const Matrix = {
             augmented: true
         };
 
+        // Augment the identity matrix
         for (let i = 0; i < n; i++) {
             for (let j = 0; j < n; j++) {
                 if (j === i) {
@@ -1254,199 +1389,40 @@ export const Matrix = {
             originalMatrix: structuredClone(matrix.data)
         };
 
-        let currentMatrix = Matrix.clone(augmentedMatrix);
-        const pivotCols = [];
-        let nextPivotRow = 0;
-        let isSingular = false;
+        const eliminator = new GaussJordanEliminator(matrix, {
+            augmentedIdentity: true,
+            phase: 'inverse',
+            processType: 'inverse'
+        });
 
         yield {
             phase: 'inverse',
             action: 'elimination_start',
             description: `<p><strong>Starting Gauss-Jordan Elimination</strong></p>
                 <p>We'll perform elimination on the augmented matrix to transform [A | I] into [I | A<sup>-1</sup>].</p>`,
-            matrix: structuredClone(currentMatrix.data),
+            matrix: structuredClone(eliminator.matrix.data),
             pivotCols: [],
             augmented: true
         };
 
-        // Process each column
-        for (let j = 0; j < n; j++) {
-            if (nextPivotRow >= n) break;
-
-            yield {
-                phase: 'inverse',
-                action: 'search_pivot',
-                description: `<p><strong>Searching for pivot in column ${j + 1}</strong></p>
-                    <p>Looking for first non-zero entry from row ${nextPivotRow + 1} downward.</p>`,
-                matrix: structuredClone(currentMatrix.data),
-                pivotCols: [...pivotCols],
-                currentColumn: j,
-                searchStart: nextPivotRow,
-                augmented: true
-            };
-
-            // Find pivot
-            let pivotRow = null;
-            let pivotValue = null;
-
-            for (let i = nextPivotRow; i < n; i++) {
-                if (Math.abs(currentMatrix.data[i][j]) > 1e-10) {
-                    pivotRow = i;
-                    pivotValue = currentMatrix.data[i][j];
-                    break;
-                }
-            }
-
-            // No pivot in this row. Then the matrix is singular and has no inverse.
-            if (pivotRow === null) {
-                yield {
-                    phase: 'inverse',
-                    action: 'singular_detected',
-                    description: `<p><strong>Matrix is singular!</strong></p>
-                        <p>No non-zero pivot found in column ${j + 1}.</p>
-                        <p>This means the matrix is not invertible (determinant is zero).</p>`,
-                    matrix: structuredClone(currentMatrix.data),
-                    pivotCols: [...pivotCols],
-                    currentColumn: j,
-                    augmented: true
-                };
-                isSingular = true;
-                break;
-            }
-
-            pivotCols.push(j);
-
-            yield {
-                phase: 'inverse',
-                action: 'pivot_found',
-                description: `<p><strong>Pivot found at (${pivotRow + 1}, ${j + 1})</strong></p>
-                    <p>Value: ${formatNumber(pivotValue)}</p>`,
-                matrix: structuredClone(currentMatrix.data),
-                pivotCols: [...pivotCols],
-                pivotPosition: { row: pivotRow, col: j },
-                augmented: true
-            };
-
-            // Swap if needed
-            if (pivotRow !== nextPivotRow) {
-                yield {
-                    phase: 'inverse',
-                    action: 'swap_explanation',
-                    description: `<p><strong>Swapping rows ${pivotRow + 1} and ${nextPivotRow + 1}</strong></p>
-                        <p>To bring pivot to diagonal position for proper elimination.</p>`,
-                    matrix: structuredClone(currentMatrix.data),
-                    pivotCols: [...pivotCols],
-                    augmented: true
-                };
-
-                currentMatrix = Matrix.switchRows(currentMatrix, pivotRow, nextPivotRow);
-
-                yield {
-                    phase: 'inverse',
-                    action: 'swapped',
-                    description: `<p><strong>Rows swapped successfully</strong></p>
-                        <p>Pivot now at position (${nextPivotRow + 1}, ${j + 1}).</p>`,
-                    matrix: structuredClone(currentMatrix.data),
-                    pivotCols: [...pivotCols],
-                    augmented: true
-                };
-            }
-
-            // Scale pivot row to 1
-            const scale = 1 / currentMatrix.data[nextPivotRow][j];
-
-            yield {
-                phase: 'inverse',
-                action: 'scale_explanation',
-                description: `<p><strong>Scaling pivot row ${nextPivotRow + 1}</strong></p>
-                    <p>Scale factor: 1 / ${formatNumber(currentMatrix.data[nextPivotRow][j])} = ${formatNumber(scale)}</p>
-                    <p>To make the pivot equal to 1.</p>`,
-                matrix: structuredClone(currentMatrix.data),
-                pivotCols: [...pivotCols],
-                augmented: true
-            };
-
-            currentMatrix.data[nextPivotRow] = Matrix.scalarVectorProduct(
-                currentMatrix.data[nextPivotRow],
-                scale
-            );
-
-            yield {
-                phase: 'inverse',
-                action: 'scaled',
-                description: `<p><strong>Row scaled successfully</strong></p>
-                    <p>Pivot at (${nextPivotRow + 1}, ${j + 1}) is now 1.</p>`,
-                matrix: structuredClone(currentMatrix.data),
-                pivotCols: [...pivotCols],
-                augmented: true
-            };
-
-            // Eliminate all other rows
-            yield {
-                phase: 'inverse',
-                action: 'eliminate_explanation',
-                description: `<p><strong>Eliminating column ${j + 1}</strong></p>
-                    <p>Making all other entries in column ${j + 1} equal to zero.</p>
-                    <p>We'll eliminate both above and below the pivot since this is Gauss-Jordan.</p>`,
-                matrix: structuredClone(currentMatrix.data),
-                pivotCols: [...pivotCols],
-                augmented: true
-            };
-
-            for (let i = 0; i < n; i++) {
-                if (i !== nextPivotRow && Math.abs(currentMatrix.data[i][j]) > 1e-10) {
-                    const factor = -currentMatrix.data[i][j];
-
-                    yield {
-                        phase: 'inverse',
-                        action: 'eliminate_row',
-                        description: `<p><strong>Eliminating row ${i + 1}</strong></p>
-                            <p>Row ${i + 1} → Row ${i + 1} + (${formatNumber(factor)}) x Row ${nextPivotRow + 1}</p>`,
-                        matrix: structuredClone(currentMatrix.data),
-                        pivotCols: [...pivotCols],
-                        targetRow: i,
-                        augmented: true
-                    };
-
-                    currentMatrix.data[i] = Matrix.sumRows(
-                        currentMatrix,
-                        nextPivotRow,
-                        i,
-                        factor
-                    );
-
-                    yield {
-                        phase: 'inverse',
-                        action: 'row_eliminated',
-                        description: `<p><strong>Row ${i + 1} eliminated successfully</strong></p>
-                            <p>Entry at (${i + 1}, ${j + 1}) is now zero.</p>`,
-                        matrix: structuredClone(currentMatrix.data),
-                        pivotCols: [...pivotCols],
-                        augmented: true
-                    };
-                }
-            }
-
-            yield {
-                phase: 'inverse',
-                action: 'column_complete',
-                description: `<p><strong>Column ${j + 1} complete</strong></p>
-                    <p>Column ${j + 1} now has 1 at (${nextPivotRow + 1}, ${j + 1}) and 0 everywhere else.</p>`,
-                matrix: structuredClone(currentMatrix.data),
-                pivotCols: [...pivotCols],
-                augmented: true
-            };
-
-            nextPivotRow++;
-        }
+        // Run elimination with inverse-specific yields
+        yield* eliminator.gaussJordanElimination(true, (col, row) => ({
+            phase: 'inverse',
+            action: 'column_complete',
+            description: `<p><strong>Column ${col + 1} complete</strong></p>
+                <p>Column ${col + 1} now has 1 at (${row + 1}, ${col + 1}) and 0 everywhere else.</p>`,
+            matrix: structuredClone(eliminator.matrix.data),
+            pivotCols: [...eliminator.pivotCols],
+            augmented: true
+        }));
 
         // No inverse
-        if (isSingular || pivotCols.length < n) {
+        if (eliminator.isSingular || eliminator.pivotCols.length < n) {
             yield {
                 phase: 'inverse',
                 action: 'no_inverse',
                 description: `<p><strong>Matrix is singular - no inverse exists!</strong></p>
-                    <p>Found only ${pivotCols.length} pivots out of ${n}.</p>
+                    <p>Found only ${eliminator.pivotCols.length} pivots out of ${n}.</p>
                     <p>The matrix has determinant 0 and is not invertible.</p>
                     <p><strong>Possible reasons:</strong></p>
                     <ul>
@@ -1455,20 +1431,16 @@ export const Matrix = {
                         <li>Matrix has rank less than ${n}</li>
                     </ul>`,
                 matrix: structuredClone(matrix.data),
-                pivotCols: [...pivotCols],
-                rank: pivotCols.length,
+                pivotCols: [...eliminator.pivotCols],
+                rank: eliminator.pivotCols.length,
                 hasInverse: false
             };
             return;
         }
 
         // Extract inverse from the right side of the matrix
-        const inverseData = [];
-        for (let i = 0; i < n; i++) {
-            inverseData.push(currentMatrix.data[i].slice(n));
-        }
-
-        const inverseMatrix = Matrix.create(inverseData);
+        const inverseMatrix = eliminator.extractInverse();
+        const inverseData = inverseMatrix.data;
 
         yield {
             phase: 'inverse',
@@ -1476,7 +1448,7 @@ export const Matrix = {
             description: `<p><strong>Extracting Inverse Matrix</strong></p>
                 <p>The right half of the augmented matrix is now the inverse A<sup>-1</sup>.</p>
                 <p>We extract columns ${n + 1} through ${2 * n} as our inverse matrix.</p>`,
-            matrix: structuredClone(currentMatrix.data),
+            matrix: structuredClone(eliminator.matrix.data),
             inverseMatrix: structuredClone(inverseData),
             augmented: true
         };
@@ -1489,7 +1461,7 @@ export const Matrix = {
                 <p><strong>Summary:</strong></p>
                 <ul>
                     <li>Matrix rank: ${n} (full rank)</li>
-                    <li>Pivot columns: ${pivotCols.map(col => col + 1).join(', ')}</li>
+                    <li>Pivot columns: ${eliminator.pivotCols.map(col => col + 1).join(', ')}</li>
                     <li>Matrix is non-singular (determinant != 0)</li>
                 </ul>`,
             originalMatrix: structuredClone(matrix.data),
