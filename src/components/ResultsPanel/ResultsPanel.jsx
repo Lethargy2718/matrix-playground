@@ -223,8 +223,8 @@ const ResultsPanel = ({ solverData, onBack }) => {
                     <OperationDisplay step={currentStep} />
 
                     <div className="matrix-comparison">
-                        {!currentStep.augmented ? (
-                            // Initial matrix display (before augmentation)
+                        {currentStepIndex === 0 ? (
+                            // Initial matrix display
                             <div className="matrix-panel shadow full-width">
                                 <h4>Original Matrix</h4>
                                 <MatrixDisplay
@@ -232,7 +232,7 @@ const ResultsPanel = ({ solverData, onBack }) => {
                                     columnWidth={columnWidth}
                                 />
                             </div>
-                        ) : (
+                        ) : (currentStepIndex != currentSteps.length - 1 &&
                             // Augmented matrix display
                             <>
                                 <div className="matrix-panel shadow">
@@ -260,72 +260,57 @@ const ResultsPanel = ({ solverData, onBack }) => {
                             </>
                         )}
                     </div>
-
-                    {/* Show the final inverse matrix if available */}
-                    {currentStep.inverseMatrix && (
-                        <div className="inverse-result-section shadow">
-                            <div className="inverse-result-header">
-                                <h3>Inverse Matrix Result</h3>
-                            </div>
-                            <MatrixDisplay
-                                matrix={currentStep.inverseMatrix}
-                                columnWidth={columnWidth}
-                            />
-                            {currentStep.originalMatrix && (
-                                <div className="verification-note">
-                                    <p>
-                                        <strong>Verification:</strong> This matrix should satisfy A . A⁻¹ = I
-                                    </p>
-                                </div>
-                            )}
-                        </div>
-                    )}
                 </div>
             )}
 
-            {(isAnalysisPhase || isSolutionPhase) && (
-                <>
-                    <SolutionOutput step={currentStep} />
+            {
+                (isAnalysisPhase || isSolutionPhase) && (
+                    <>
+                        <SolutionOutput step={currentStep} />
 
-                    {/* Show final RREF matrix */}
-                    {currentStep.matrix && (
-                        <div className="final-matrix-section shadow">
-                            <div className="final-matrix-header">
-                                <h3>Final Reduced Matrix</h3>
+                        {/* Show final RREF matrix */}
+                        {currentStep.matrix && (
+                            <div className="final-matrix-section shadow">
+                                <div className="final-matrix-header">
+                                    <h3>Final Reduced Matrix</h3>
+                                </div>
+                                <MatrixDisplay
+                                    matrix={currentStep.matrix}
+                                    augmentedVector={currentStep.augmentedVector}
+                                    changedRows={getChangedRows(currentStep)}
+                                    columnWidth={columnWidth}
+                                    pivots={currentStep.pivots}
+                                />
                             </div>
-                            <MatrixDisplay
-                                matrix={currentStep.matrix}
-                                augmentedVector={currentStep.augmentedVector}
-                                changedRows={getChangedRows(currentStep)}
-                                columnWidth={columnWidth}
-                                pivots={currentStep.pivots}
-                            />
-                        </div>
-                    )}
-                </>
-            )}
+                        )}
+                    </>
+                )
+            }
 
             {/* Show inverse result alone if calculated */}
-            {inverseResult && currentStepIndex === currentSteps.length - 1 && (
-                <div className="final-inverse-section shadow">
-                    <div className="final-inverse-header">
-                        <h3>Final Inverse Matrix</h3>
-                        <p className="inverse-summary">
-                            The inverse of the original {inverseResult.rows}.{inverseResult.cols} matrix:
-                        </p>
+            {
+                inverseResult && currentStepIndex === currentSteps.length - 1 && (
+                    <div className="matrix-comparison">
+
+                        <div className="matrix-panel shadow">
+                            <h4>Original Matrix</h4>
+                            <MatrixDisplay
+                                matrix={currentStep.matrix || currentStep.originalMatrix}
+                                columnWidth={columnWidth}
+                            />
+                        </div>
+                        <div className="matrix-panel shadow">
+                            <h4>Inverse</h4>
+                            <MatrixDisplay
+                                matrix={inverseResult.data}
+                                columnWidth={columnWidth}
+                            />
+                        </div>
                     </div>
-                    <MatrixDisplay
-                        matrix={inverseResult.data}
-                        columnWidth={columnWidth}
-                    />
-                    <div className="inverse-verification">
-                        <p>
-                            <strong>Verification:</strong> Multiply the original matrix by this inverse to get the identity matrix.
-                        </p>
-                    </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+
+        </div >
     );
 };
 
