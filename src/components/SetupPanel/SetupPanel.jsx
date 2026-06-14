@@ -2,19 +2,17 @@ import { useState, useEffect, Fragment, useRef } from 'react';
 import { getRandomInt } from '../../utils/helpers';
 import './SetupPanel.css';
 import { SOLVE_TYPES } from '../../utils/actions';
+import AIPanel from '../AIPanel/AIPanel';  // <-- add this import
 
 const SetupPanel = ({ onSolve }) => {
     const [equations, setEquations] = useState(3);
     const [variables, setVariables] = useState(3);
     const [solveType, setSolveType] = useState(SOLVE_TYPES.REF);
     const [matrixData, setMatrixData] = useState([]);
-
     const runButtonRef = useRef(null);
 
     useEffect(() => {
-        if (runButtonRef.current) {
-            runButtonRef.current.focus();
-        }
+        if (runButtonRef.current) runButtonRef.current.focus();
     }, []);
 
     useEffect(() => {
@@ -28,8 +26,7 @@ const SetupPanel = ({ onSolve }) => {
             for (let j = 0; j < variables; j++) {
                 row.push(String(getRandomInt(-5, 5)));
             }
-            const constant = String(getRandomInt(-10, 10));
-            newMatrix.push({ coefficients: row, constant });
+            newMatrix.push({ coefficients: row, constant: String(getRandomInt(-10, 10)) });
         }
         setMatrixData(newMatrix);
     };
@@ -46,19 +43,18 @@ const SetupPanel = ({ onSolve }) => {
         setMatrixData(newMatrix);
     };
 
-    const handleSolve = () => {
-        const A = matrixData.map(row =>
-            row.coefficients.map(v => parseFloat(v) || 0)
-        );
-        const b = matrixData.map(row => parseFloat(row.constant) || 0);
+    // Called by AIPanel when the AI has parsed a valid system
+    const handleMatrixReady = ({ equations: eq, variables: vars, matrixData: md, solveType: st }) => {
+        setEquations(eq);
+        setVariables(vars);
+        setMatrixData(md);
+        if (st && SOLVE_TYPES[st]) setSolveType(SOLVE_TYPES[st]);
+    };
 
-        onSolve({
-            A,
-            b,
-            equations,
-            variables,
-            solveType
-        });
+    const handleSolve = () => {
+        const A = matrixData.map(row => row.coefficients.map(v => parseFloat(v) || 0));
+        const b = matrixData.map(row => parseFloat(row.constant) || 0);
+        onSolve({ A, b, equations, variables, solveType });
     };
 
     return (
@@ -66,6 +62,9 @@ const SetupPanel = ({ onSolve }) => {
             <div className="panel-header">
                 <h2>System Setup</h2>
             </div>
+
+            {/* ── AI panel sits above the manual controls ── */}
+            <AIPanel onMatrixReady={handleMatrixReady} />
 
             <div className="input-controls shadow">
                 <div className="control-group">
@@ -79,7 +78,6 @@ const SetupPanel = ({ onSolve }) => {
                         onChange={(e) => setEquations(parseInt(e.target.value))}
                     />
                 </div>
-
                 <div className="control-group">
                     <label htmlFor="variables">Number of Variables:</label>
                     <input
@@ -91,7 +89,6 @@ const SetupPanel = ({ onSolve }) => {
                         onChange={(e) => setVariables(parseInt(e.target.value))}
                     />
                 </div>
-
                 <button className="btn-primary" onClick={generateMatrix}>
                     Generate Matrix
                 </button>
@@ -101,7 +98,6 @@ const SetupPanel = ({ onSolve }) => {
                 <div className="matrix-header">
                     <h3>Enter Coefficients & Solutions</h3>
                 </div>
-
                 <div className="matrix-input shadow">
                     <div className="matrix-input-rows">
                         {matrixData.map((row, i) => (
@@ -109,7 +105,6 @@ const SetupPanel = ({ onSolve }) => {
                                 <span className="equation-line">
                                     L<sub>{i + 1}</sub> :
                                 </span>
-
                                 {row.coefficients.map((coeff, j) => (
                                     <Fragment key={j}>
                                         <span className="equation-term">
@@ -118,44 +113,23 @@ const SetupPanel = ({ onSolve }) => {
                                                 className="coeff-input"
                                                 placeholder="0"
                                                 value={coeff}
-                                                onFocus={(e) => {
-                                                    if (e.target.value === '0') e.target.value = '';
-                                                }}
-                                                onBlur={(e) => {
-                                                    if (e.target.value === '') {
-                                                        handleCoefficientChange(i, j, '0');
-                                                    }
-                                                }}
-                                                onChange={(e) =>
-                                                    handleCoefficientChange(i, j, e.target.value)
-                                                }
+                                                onFocus={(e) => { if (e.target.value === '0') e.target.value = ''; }}
+                                                onBlur={(e) => { if (e.target.value === '') handleCoefficientChange(i, j, '0'); }}
+                                                onChange={(e) => handleCoefficientChange(i, j, e.target.value)}
                                             />
-                                            <span className="variable">
-                                                x<sub>{j + 1}</sub>
-                                            </span>
+                                            <span className="variable">x<sub>{j + 1}</sub></span>
                                         </span>
-
-                                        {j < variables - 1 && (
-                                            <span className="operator">+</span>
-                                        )}
+                                        {j < variables - 1 && <span className="operator">+</span>}
                                     </Fragment>
                                 ))}
-
                                 <span className="equals">=</span>
-
                                 <input
                                     type="number"
                                     className="result-input"
                                     placeholder="0"
                                     value={row.constant}
-                                    onFocus={(e) => {
-                                        if (e.target.value === '0') e.target.value = '';
-                                    }}
-                                    onBlur={(e) => {
-                                        if (e.target.value === '') {
-                                            handleConstantChange(i, '0');
-                                        }
-                                    }}
+                                    onFocus={(e) => { if (e.target.value === '0') e.target.value = ''; }}
+                                    onBlur={(e) => { if (e.target.value === '') handleConstantChange(i, '0'); }}
                                     onChange={(e) => handleConstantChange(i, e.target.value)}
                                 />
                             </div>
@@ -164,59 +138,27 @@ const SetupPanel = ({ onSolve }) => {
                 </div>
 
                 <div className="solve-options">
-                    <label className="option-label">
-                        <input
-                            type="radio"
-                            name="solve-type"
-                            value={SOLVE_TYPES.REF}
-                            checked={solveType === SOLVE_TYPES.REF}
-                            onChange={(e) => setSolveType(e.target.value)}
-                        />
-                        <span className="radio-custom"></span>
-                        Row Echelon Form
-                    </label>
-
-                    <label className="option-label">
-                        <input
-                            type="radio"
-                            name="solve-type"
-                            value={SOLVE_TYPES.RREF}
-                            checked={solveType === SOLVE_TYPES.RREF}
-                            onChange={(e) => setSolveType(e.target.value)}
-                        />
-                        <span className="radio-custom"></span>
-                        Reduced Row Echelon Form
-                    </label>
-
-                    <label className="option-label">
-                        <input
-                            type="radio"
-                            name="solve-type"
-                            value={SOLVE_TYPES.FULL}
-                            checked={solveType === SOLVE_TYPES.FULL}
-                            onChange={(e) => setSolveType(e.target.value)}
-                        />
-                        <span className="radio-custom"></span>
-                        Solve System of Equations
-                    </label>
-                    <label className="option-label">
-                        <input
-                            type="radio"
-                            name="solve-type"
-                            value={SOLVE_TYPES.INVERSE}
-                            checked={solveType === SOLVE_TYPES.INVERSE}
-                            onChange={(e) => setSolveType(e.target.value)}
-                        />
-                        <span className="radio-custom"></span>
-                        Inverse
-                    </label>
+                    {[
+                        [SOLVE_TYPES.REF, 'Row Echelon Form'],
+                        [SOLVE_TYPES.RREF, 'Reduced Row Echelon Form'],
+                        [SOLVE_TYPES.FULL, 'Solve System of Equations'],
+                        [SOLVE_TYPES.INVERSE, 'Inverse'],
+                    ].map(([val, label]) => (
+                        <label key={val} className="option-label">
+                            <input
+                                type="radio"
+                                name="solve-type"
+                                value={val}
+                                checked={solveType === val}
+                                onChange={(e) => setSolveType(e.target.value)}
+                            />
+                            <span className="radio-custom" />
+                            {label}
+                        </label>
+                    ))}
                 </div>
 
-                <button
-                    className="btn-primary solve-btn"
-                    onClick={handleSolve}
-                    ref={runButtonRef}
-                >
+                <button className="btn-primary solve-btn" onClick={handleSolve} ref={runButtonRef}>
                     Run
                 </button>
             </div>

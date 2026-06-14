@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import SetupPanel from './components/SetupPanel/SetupPanel';
 import ResultsPanel from './components/ResultsPanel/ResultsPanel';
-import './styles/globals.css';
 import ThemeSwitcher from './components/ThemeSwitcher/ThemeSwitcher';
-import BackgroundParticles from './components/BackgroundParticles/BackgroundParticles';
+
+import './styles/globals.css';
 
 function App() {
 	const [currentView, setCurrentView] = useState('setup');
