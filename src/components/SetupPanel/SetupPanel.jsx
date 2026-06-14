@@ -2,7 +2,6 @@ import { useState, useEffect, Fragment, useRef } from 'react';
 import { getRandomInt } from '../../utils/helpers';
 import './SetupPanel.css';
 import { SOLVE_TYPES } from '../../utils/actions';
-import AIPanel from '../AIPanel/AIPanel';  // <-- add this import
 
 const SetupPanel = ({ onSolve }) => {
     const [equations, setEquations] = useState(3);
@@ -43,14 +42,6 @@ const SetupPanel = ({ onSolve }) => {
         setMatrixData(newMatrix);
     };
 
-    // Called by AIPanel when the AI has parsed a valid system
-    const handleMatrixReady = ({ equations: eq, variables: vars, matrixData: md, solveType: st }) => {
-        setEquations(eq);
-        setVariables(vars);
-        setMatrixData(md);
-        if (st && SOLVE_TYPES[st]) setSolveType(SOLVE_TYPES[st]);
-    };
-
     const handleSolve = () => {
         const A = matrixData.map(row => row.coefficients.map(v => parseFloat(v) || 0));
         const b = matrixData.map(row => parseFloat(row.constant) || 0);
@@ -62,9 +53,6 @@ const SetupPanel = ({ onSolve }) => {
             <div className="panel-header">
                 <h2>System Setup</h2>
             </div>
-
-            {/* ── AI panel sits above the manual controls ── */}
-            <AIPanel onMatrixReady={handleMatrixReady} />
 
             <div className="input-controls shadow">
                 <div className="control-group">

@@ -20,7 +20,7 @@ const StepNavigation = ({
         const handleScroll = () => {
             if (containerRef.current) {
                 const rect = containerRef.current.getBoundingClientRect();
-                setIsStuck(rect.top <= 10);
+                setIsStuck(rect.top <= 100);
             }
         };
 

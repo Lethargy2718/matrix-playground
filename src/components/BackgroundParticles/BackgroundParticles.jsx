@@ -45,7 +45,7 @@ const ParticlesComponent = (props) => {
                         default: "bounce",
                     },
                     random: true,
-                    speed: 1,
+                    speed: 0.5,
                     straight: false,
                 },
                 number: {
@@ -55,7 +55,7 @@ const ParticlesComponent = (props) => {
                     value: 150,
                 },
                 opacity: {
-                    value: 1.0,
+                    value: 0.25
                 },
                 shape: {
                     type: "circle",
