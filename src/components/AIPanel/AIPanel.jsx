@@ -13,7 +13,7 @@ RULES:
    - labels = the actual variable names (e.g. ["I1","I2","I3"] for currents, ["x","y","z"] for generics)
    - solveType: "FULL" for word problems, "RREF" for pure matrix reduction, "REF" for row echelon only
 4. If the user is just chatting or asking a question (not giving a problem), respond with a SHORT plain-text reply (no JSON) to help them give you a proper problem.
-5. DO NOT include markdown, explanation, or any text outside the JSON when outputting a matrix or error.
+5. OUTPUT ONLY THE RAW JSON. No words before it, no words after it, no explanation, no "here is", no markdown. If your response contains anything other than a single JSON object, it is wrong.
 6. ALL matrix values MUST be evaluated decimal numbers. Never use fractions, expressions, or arithmetic like "1/4 + 1/2". Compute them first: 1/4 + 1/2 = 0.75, write 0.75.
 `;
 
